@@ -375,6 +375,9 @@
     let pointOpacity = +pointOpacitySlider.input.value;
     let clusterMode = "kmeans"; // "kmeans" | "kmedoids"
     let running = null;
+    let gmmWeights = [];
+    let gmmVars = [];
+    let gmmResp = null;
     let activeCentroid = null; // selected centroid index or null
     let axesVisible = true;
     let axesScene = null;
@@ -444,6 +447,30 @@
 
     function randBetween(min, max){
       return min + Math.random() * (max - min);
+    }
+
+    function computeGlobalVariance(){
+      if(points.length === 0) return 50;
+      let mx=0,my=0,mz=0;
+      for(const p of points){ mx+=p.x; my+=p.y; mz+=p.z; }
+      mx/=points.length; my/=points.length; mz/=points.length;
+      let acc=0;
+      for(const p of points){
+        const dx=p.x-mx, dy=p.y-my, dz=p.z-mz;
+        acc += dx*dx + dy*dy + dz*dz;
+      }
+      return Math.max(acc / (points.length * 3), 25);
+    }
+
+    function gaussianLogProb(p, mean, variance){
+      const v = Math.max(variance, 1e-3);
+      const dx = p.x - mean.x;
+      const dy = p.y - mean.y;
+      const dz = p.z - mean.z;
+      const d2 = dx*dx + dy*dy + dz*dz;
+      const logDet = 3 * Math.log(v);
+      const normConst = -0.5 * (3 * Math.log(2*Math.PI) + logDet);
+      return normConst - 0.5 * (d2 / v);
     }
 
 
@@ -681,6 +708,10 @@
         clearFocusedPoint();
       }
       centroids = seedCentroidsFromPoints(k, clusterMode === "kmeans");
+      gmmResp = null;
+      gmmWeights = Array(centroids.length).fill(centroids.length ? 1/centroids.length : 0);
+      const baseVar = computeGlobalVariance();
+      gmmVars = Array(centroids.length).fill(baseVar);
       assignments = new Array(points.length).fill(-1);
       iteration = 0;
       assign();
@@ -691,6 +722,7 @@
     }
 
     function assign(){
+      if(clusterMode === "gmm") return assignGMM();
       let changed = false;
       for(let i=0;i<points.length;i++){
         let best = -1, bestDist = Infinity;
@@ -712,8 +744,43 @@
       return changed;
     }
 
+    function assignGMM(){
+      const k = centroids.length;
+      if(k === 0) return false;
+      let changed = false;
+      gmmResp = Array(points.length);
+      const weights = gmmWeights.length === k ? gmmWeights : Array(k).fill(1/k);
+      const variances = gmmVars.length === k ? gmmVars : Array(k).fill(computeGlobalVariance());
+      for(let i=0;i<points.length;i++){
+        const p = points[i];
+        const logps = new Array(k);
+        let maxLog = -Infinity;
+        for(let j=0;j<k;j++){
+          const logp = Math.log(Math.max(weights[j], 1e-6)) + gaussianLogProb(p, centroids[j], variances[j]);
+          logps[j] = logp;
+          if(logp > maxLog) maxLog = logp;
+        }
+        let denom = 0;
+        for(let j=0;j<k;j++) denom += Math.exp(logps[j] - maxLog);
+        const respRow = new Array(k);
+        let best = 0, bestR = -1;
+        for(let j=0;j<k;j++){
+          const r = Math.exp(logps[j] - maxLog) / (denom || 1);
+          respRow[j] = r;
+          if(r > bestR){ bestR = r; best = j; }
+        }
+        gmmResp[i] = respRow;
+        if(assignments[i] !== best){
+          assignments[i] = best;
+          changed = true;
+        }
+      }
+      return changed;
+    }
+
     function updateCentroids(){
       if(clusterMode === "kmedoids") return updateMedoids();
+      if(clusterMode === "gmm") return updateGMM();
       const sums = centroids.map(()=>({x:0,y:0,z:0,count:0}));
       for(let i=0;i<points.length;i++){
         const a = assignments[i];
@@ -799,6 +866,69 @@
       return moved;
     }
 
+    function updateGMM(){
+      const k = centroids.length;
+      if(k === 0) return false;
+      if(!gmmResp) assignGMM();
+      const weightSums = Array(k).fill(0);
+      const meanSums = centroids.map(()=>({x:0,y:0,z:0}));
+      const variances = Array(k).fill(0);
+      for(let i=0;i<points.length;i++){
+        const p = points[i];
+        const resp = gmmResp?.[i];
+        if(!resp) continue;
+        for(let j=0;j<k;j++){
+          const r = resp[j] || 0;
+          weightSums[j] += r;
+          meanSums[j].x += r * p.x;
+          meanSums[j].y += r * p.y;
+          meanSums[j].z += r * p.z;
+        }
+      }
+
+      const nonEmpty = centroids.filter((_, idx)=> weightSums[idx] > 1e-6);
+      let moved = false;
+      for(let j=0;j<k;j++){
+        if(weightSums[j] <= 1e-6){
+          const p = farthestPointFrom(nonEmpty) || points[Math.floor(Math.random()*points.length)] || {x:0,y:0,z:0};
+          centroids[j].x = p.x; centroids[j].y = p.y; centroids[j].z = p.z;
+          gmmVars[j] = computeGlobalVariance();
+          gmmWeights[j] = 1/Math.max(k,1);
+          moved = true;
+          continue;
+        }
+        const nx = meanSums[j].x / weightSums[j];
+        const ny = meanSums[j].y / weightSums[j];
+        const nz = meanSums[j].z / weightSums[j];
+        const delta = Math.hypot(nx-centroids[j].x, ny-centroids[j].y, nz-centroids[j].z);
+        centroids[j].x = nx; centroids[j].y = ny; centroids[j].z = nz;
+        if(delta > 1e-4) moved = true;
+      }
+
+      // variance update
+      for(let i=0;i<points.length;i++){
+        const p = points[i];
+        const resp = gmmResp?.[i];
+        if(!resp) continue;
+        for(let j=0;j<k;j++){
+          const r = resp[j] || 0;
+          if(r <= 0) continue;
+          const dx = p.x - centroids[j].x;
+          const dy = p.y - centroids[j].y;
+          const dz = p.z - centroids[j].z;
+          variances[j] += r * (dx*dx + dy*dy + dz*dz);
+        }
+      }
+      const totalResp = points.length || 1;
+      for(let j=0;j<k;j++){
+        const varNew = weightSums[j] > 1e-6 ? Math.max(variances[j] / (Math.max(weightSums[j],1e-6) * 3), 10) : computeGlobalVariance();
+        if(Math.abs(varNew - (gmmVars[j] || 0)) > 1e-3) moved = true;
+        gmmVars[j] = varNew;
+        gmmWeights[j] = weightSums[j] / totalResp;
+      }
+      return moved;
+    }
+
     function sse(){
       let total = 0;
       for(let i=0;i<points.length;i++){
@@ -841,6 +971,9 @@
       points = [];
       centroids = [];
       assignments = [];
+      gmmResp = null;
+      gmmWeights = [];
+      gmmVars = [];
       iteration = 0;
       activeCentroid = null;
       clearFocusedPoint();
@@ -858,7 +991,7 @@
     }
 
     function refreshModeUI(){
-      const label = clusterMode === "kmeans" ? "k-means" : "k-medoids";
+      const label = clusterMode === "kmeans" ? "k-means" : (clusterMode === "kmedoids" ? "k-medoids" : "GMM");
       modeVal.textContent = label;
       modeBtn.textContent = `Mode: ${label}`;
     }
@@ -875,6 +1008,9 @@
       points = makePoints(+nSlider.input.value, +kSlider.input.value, +spreadSlider.input.value);
       centroids = [];
       assignments = [];
+      gmmResp = null;
+      gmmWeights = [];
+      gmmVars = [];
       iteration = 0;
       clearFocusedPoint();
       disposeAllGlobes();
@@ -885,12 +1021,17 @@
       if(planesVisible) updatePlaneOrigin();
     };
     modeBtn.onclick = ()=>{
-      clusterMode = clusterMode === "kmeans" ? "kmedoids" : "kmeans";
+      if(clusterMode === "kmeans") clusterMode = "kmedoids";
+      else if(clusterMode === "kmedoids") clusterMode = "gmm";
+      else clusterMode = "kmeans";
       refreshModeUI();
       stop();
       activeCentroid = null;
       centroids = [];
       assignments = [];
+      gmmResp = null;
+      gmmWeights = [];
+      gmmVars = [];
       iteration = 0;
       init(+kSlider.input.value);
       runBtn.textContent = "Run";
