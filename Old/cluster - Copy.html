@@ -1,0 +1,1271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>3D K-means Demo</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, #0d1a24 0%, #04070d 45%, #04070c 100%);
+      color: #dfe9f5;
+      margin: 0;
+      padding: 24px;
+    }
+    .shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      background: linear-gradient(135deg, rgba(30,52,74,0.65), rgba(16,26,38,0.82));
+      border: 1px solid rgba(255,255,255,0.07);
+      box-shadow: 0 30px 80px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.07);
+      border-radius: 16px;
+      padding: 18px 18px 10px 18px;
+      backdrop-filter: blur(10px);
+    }
+    .panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px 12px 6px 12px;
+    }
+    .topline{
+      display:flex;
+      flex-wrap:wrap;
+      justify-content: space-between;
+      gap:14px;
+      align-items:center;
+    }
+    .titles .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 11px;
+      color: #6cbaff;
+    }
+    .titles .headline {
+      font-weight: 700;
+      font-size: 24px;
+      color: #e9f3ff;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      flex: 1;
+      min-width: 300px;
+    }
+    .metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 8px 12px;
+      border-radius: 12px;
+    }
+    .metric{
+      display:flex;
+      gap:6px;
+      align-items: baseline;
+      font-size:13px;
+      color:#d9e8f7;
+    }
+    .metric span {
+      font-size: 12px;
+      color: #b7c6d8;
+    }
+    .metric strong {
+      font-size: 16px;
+      color: #ffffff;
+    }
+    input[type=range] {
+      width: 100%;
+      accent-color: #5ad1ff;
+    }
+    label { font-size: 12px; color: #9eb5c9; display: block; }
+    .btn-row {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .btn {
+      border: 1px solid rgba(255,255,255,0.07);
+      background: rgba(255,255,255,0.05);
+      color: #e8f2ff;
+      padding: 8px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      transition: all 0.12s ease;
+    }
+    .btn:hover { border-color: rgba(90,209,255,0.8); box-shadow: 0 0 0 1px rgba(90,209,255,0.3); }
+    .btn.primary { background: linear-gradient(120deg, #2f8bff, #1ddbe0); border-color: transparent; color: #0a1320; }
+    .btn.primary:hover { box-shadow: 0 10px 30px rgba(37,139,255,0.3); }
+    .btn:active { transform: translateY(1px); }
+    .btn.ghost { background: rgba(255,255,255,0.04); }
+    .viewport {
+      width: 100%;
+      height: 720px;
+      position: relative;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: radial-gradient(circle at 30% 30%, rgba(120,170,230,0.14), rgba(0,0,0,0));
+      overflow: hidden;
+    }
+    .axes-overlay{
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      width: 180px;
+      height: 180px;
+      pointer-events: none;
+    }
+    canvas { display: block; }
+    .hint {
+      text-align: center;
+      color: #8fb2cc;
+      font-size: 13px;
+      margin: 10px 0 4px;
+      letter-spacing: 0.02em;
+    }
+    @media (max-width: 720px){
+      .panel { flex-direction: column; align-items: flex-start; }
+      .viewport { height: 420px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  <script>
+    function showError(message){
+      console.error(message);
+      const note = document.createElement("div");
+      note.style.padding = "12px 14px";
+      note.style.margin = "16px";
+      note.style.borderRadius = "10px";
+      note.style.border = "1px solid rgba(255,255,255,0.15)";
+      note.style.background = "rgba(30,10,10,0.45)";
+      note.style.color = "#ffb7b7";
+      note.style.fontFamily = "ui-monospace, SFMono-Regular, Consolas, monospace";
+      note.textContent = "3D demo failed to load: " + message;
+      document.body.innerHTML = "";
+      document.body.appendChild(note);
+    }
+    window.addEventListener("error", (e)=> showError(e.message || "unknown error"));
+    window.addEventListener("unhandledrejection", (e)=> showError(e.reason || "promise rejection"));
+
+    // Small helpers to mimic Observable Inputs without the runtime
+    const makeSlider = (min, max, value, step, label) => {
+      const wrap = document.createElement("div");
+      const lab = document.createElement("label");
+      lab.textContent = label;
+      const input = document.createElement("input");
+      input.type = "range";
+      input.min = min;
+      input.max = max;
+      input.step = step;
+      input.value = value;
+      wrap.append(lab, input);
+      return {node: wrap, input};
+    };
+
+    const palette = [
+      "#66c2ff","#ff8a4d","#9ae66e","#f04d98","#c592ff",
+      "#4de0c4","#ffce5c","#82b0ff","#ff7f7f","#5be37f",
+      "#f5a3ff","#7cf5e3"
+    ];
+
+    // Inline ConvexHull + ConvexGeometry (lifted from three.js examples r158)
+    (function(){
+      const Visible = 0;
+      const Deleted = 1;
+
+      class ConvexHull {
+        constructor(){
+          this.tolerance = -1;
+          this.faces = [];
+          this.newFaces = [];
+          this.assigned = new VertexList();
+          this.unassigned = new VertexList();
+        }
+        setFromPoints(points){
+          if(Array.isArray(points) !== true) console.error("THREE.ConvexHull: Points must be an array.");
+          if(points.length < 4) return this;
+          this.makeEmpty();
+          this.points = points;
+          this.compute();
+          return this;
+        }
+        setFromObject(object){
+          const points = [];
+          object.updateMatrixWorld(true);
+          object.traverse(node=>{
+            if(node.isMesh){
+              const position = node.geometry.attributes.position;
+              for(let i=0;i<position.count;i++){
+                const point = new THREE.Vector3();
+                point.fromBufferAttribute(position, i).applyMatrix4(node.matrixWorld);
+                points.push(point);
+              }
+            }
+          });
+          return this.setFromPoints(points);
+        }
+        makeEmpty(){
+          this.faces = [];
+          return this;
+        }
+        compute(){
+          let i, vertex, vertices = this.vertices = [];
+          for(i=0;i<this.points.length;i++){
+            vertices.push(new VertexNode(this.points[i]));
+          }
+          let max = new THREE.Vector3();
+          let min = new THREE.Vector3();
+          max.set(-Infinity, -Infinity, -Infinity);
+          min.set(Infinity, Infinity, Infinity);
+          for(i=0;i<this.points.length;i++){
+            const point = this.points[i];
+            min.min(point);
+            max.max(point);
+          }
+          this.tolerance = 3*Number.EPSILON * Math.max(max.x - min.x, max.y - min.y, max.z - min.z);
+
+          const v0 = this.vertices[0];
+          let v1 = null;
+          let v2 = null;
+          let v3 = null;
+
+          let distance, maxDistance = 0;
+          for(i=1;i<this.vertices.length;i++){
+            distance = this.vertices[i].point.distanceToSquared(v0.point);
+            if(distance > maxDistance){
+              maxDistance = distance;
+              v1 = this.vertices[i];
+            }
+          }
+          maxDistance = 0;
+          _tmp.set(0,0,0);
+          for(i=0;i<this.vertices.length;i++){
+            if(this.vertices[i] === v0 || this.vertices[i] === v1) continue;
+            _tmp.subVectors(this.vertices[i].point, v0.point);
+            _tmp1.subVectors(v1.point, v0.point);
+            _tmp2.crossVectors(_tmp1, _tmp);
+            distance = _tmp2.lengthSq();
+            if(distance > maxDistance){
+              maxDistance = distance;
+              v2 = this.vertices[i];
+            }
+          }
+          maxDistance = 0;
+          const normal = new THREE.Vector3();
+          for(i=0;i<this.vertices.length;i++){
+            if(this.vertices[i] === v0 || this.vertices[i] === v1 || this.vertices[i] === v2) continue;
+            normal.copy(v2.point).sub(v1.point).cross(_tmp.copy(this.vertices[i].point).sub(v1.point));
+            distance = Math.abs(normal.dot(_tmp1.copy(v0.point).sub(v1.point)));
+            if(distance > maxDistance){
+              maxDistance = distance;
+              v3 = this.vertices[i];
+            }
+          }
+          if(v3 === null) return this;
+          const faces = this.faces;
+          function makeFace(a,b,c){
+            const face = Face.create(a, b, c);
+            faces.push(face);
+            return face;
+          }
+          const f0 = makeFace(v0, v1, v2);
+          const f1 = makeFace(v0, v2, v3);
+          const f2 = makeFace(v0, v3, v1);
+          const f3 = makeFace(v1, v3, v2);
+          // set adjacency
+          f0.getEdge(0).setTwin(f1.getEdge(0));
+          f0.getEdge(1).setTwin(f2.getEdge(0));
+          f0.getEdge(2).setTwin(f3.getEdge(0));
+          f1.getEdge(1).setTwin(f3.getEdge(2));
+          f1.getEdge(2).setTwin(f2.getEdge(1));
+          f2.getEdge(2).setTwin(f3.getEdge(1));
+
+          // ensure consistent orientation
+          for(i=0;i<this.vertices.length;i++){
+            vertex = this.vertices[i];
+            if(vertex === v0 || vertex === v1 || vertex === v2 || vertex === v3) continue;
+            let maxFace = null;
+            let maxD = this.tolerance;
+            for(let j=0;j<this.faces.length;j++){
+              const dist = this.faces[j].distanceToPoint(vertex.point);
+              if(dist > maxD){
+                maxD = dist;
+                maxFace = this.faces[j];
+              }
+            }
+            if(maxFace) this.addVertexToFace(vertex, maxFace);
+          }
+          return this.reconstruct();
+        }
+        computeHorizon(eyePoint, crossEdge, face, horizon){
+          // recursively walk incident faces that are visible from eyePoint to construct horizon
+          this.deleteFace(face);
+          let edge;
+          if(!crossEdge){
+            edge = face.getEdge(0);
+          } else {
+            edge = crossEdge.next;
+          }
+          do{
+            const twin = edge.twin;
+            const oppositeFace = twin ? twin.face : null;
+            if(oppositeFace && oppositeFace.mark === Visible){
+              if(oppositeFace.distanceToPoint(eyePoint) > this.tolerance){
+                this.computeHorizon(eyePoint, twin, oppositeFace, horizon);
+              } else {
+                horizon.push(edge);
+              }
+            }
+            edge = edge.next;
+          } while(edge !== (crossEdge ? crossEdge : face.getEdge(0)));
+        }
+        reconstruct(){
+          let vertex;
+          while((vertex = this.nextVertexToAdd())){
+            this.addVertexToHull(vertex);
+          }
+          return this;
+        }
+        nextVertexToAdd(){
+          if(!this.assigned.head) return null;
+          let vertex = this.assigned.head;
+          let maxDistance = 0;
+          let maxVertex = null;
+          while(vertex){
+            const distance = vertex.face.distanceToPoint(vertex.point);
+            if(distance > maxDistance){
+              maxDistance = distance;
+              maxVertex = vertex;
+            }
+            vertex = vertex.next;
+          }
+          return maxVertex;
+        }
+        addVertexToHull(vertex){
+          const horizon = [];
+          this.unassigned.clear();
+          this.removeVertexFromFace(vertex, vertex.face);
+          this.computeHorizon(vertex.point, null, vertex.face, horizon);
+          this.newFaces = [];
+          let firstSideEdge = null;
+          let prevSideEdge = null;
+          for(let i=0;i<horizon.length;i++){
+            const edge = horizon[i];
+            const sideFace = Face.create(edge.tail(), vertex.point, edge.head());
+            this.faces.push(sideFace);
+            this.newFaces.push(sideFace);
+            sideFace.getEdge(0).setTwin(edge);
+            if(prevSideEdge){
+              sideFace.getEdge(2).setTwin(prevSideEdge);
+            } else {
+              firstSideEdge = sideFace.getEdge(2);
+            }
+            prevSideEdge = sideFace.getEdge(1);
+          }
+          if(firstSideEdge && prevSideEdge){
+            firstSideEdge.setTwin(prevSideEdge);
+          }
+          for(let i=0;i<this.newFaces.length;i++){
+            this.resolveUnassignedPoints(this.newFaces[i]);
+          }
+          return this;
+        }
+        deleteFace(face){
+          face.mark = Deleted;
+          if(face.outside){
+            this.unassigned.append(face.outside);
+            face.outside = null;
+          }
+        }
+        removeVertexFromFace(vertex, face){
+          if(!vertex || vertex.face !== face) return;
+          if(!face.outside) return;
+          face.outside.remove(vertex);
+          vertex.face = null;
+        }
+        resolveUnassignedPoints(face){
+          if(!face.outside) return;
+          this.unassigned.append(face.outside);
+          face.outside = null;
+          let vertex = this.unassigned.first();
+          while(vertex){
+            const nextVertex = vertex.next;
+            let maxFace = null;
+            let maxDistance = this.tolerance;
+            for(let i=0;i<this.faces.length;i++){
+              const dist = this.faces[i].distanceToPoint(vertex.point);
+              if(dist > maxDistance){
+                maxDistance = dist;
+                maxFace = this.faces[i];
+              }
+            }
+            if(maxFace){
+              this.addVertexToFace(vertex, maxFace);
+            }
+            vertex = nextVertex;
+          }
+        }
+        addVertexToFace(vertex, face){
+          vertex.face = face;
+          if(!face.outside) face.outside = new VertexList();
+          face.outside.push(vertex);
+        }
+      }
+
+      class Face {
+        constructor(){
+          this.normal = new THREE.Vector3();
+          this.midpoint = new THREE.Vector3();
+          this.area = 0;
+          this.constant = 0;
+          this.outside = null;
+          this.mark = Visible;
+          this.edge = null;
+        }
+        static create(a, b, c){
+          const face = new Face();
+          const e0 = new HalfEdge(a, face);
+          const e1 = new HalfEdge(b, face);
+          const e2 = new HalfEdge(c, face);
+          // join
+          e0.next = e2.prev = e1;
+          e1.next = e0.prev = e2;
+          e2.next = e1.prev = e0;
+          face.edge = e0;
+          face.compute();
+          return face;
+        }
+        getEdge(i){
+          let edge = this.edge;
+          while(i>0){
+            edge = edge.next;
+            i--;
+          }
+          return edge;
+        }
+        compute(){
+          const a = this.edge.tail();
+          const b = this.edge.head();
+          const c = this.edge.next.head();
+          _tmp1.subVectors(c, b);
+          _tmp2.subVectors(a, b);
+          this.normal.crossVectors(_tmp1, _tmp2).normalize();
+          this.constant = this.normal.dot(a);
+          this.midpoint.addVectors(a, b).add(c).multiplyScalar(1/3);
+          this.area = this.normal.lengthSq();
+          return this;
+        }
+        distanceToPoint(point){
+          return this.normal.dot(point) - this.constant;
+        }
+      }
+
+      class HalfEdge {
+        constructor(vertex, face){
+          this.vertex = vertex;
+          this.face = face;
+          this.next = null;
+          this.prev = null;
+          this.twin = null;
+        }
+        head(){ return this.vertex; }
+        tail(){ return this.prev ? this.prev.vertex : null; }
+        setTwin(edge){ this.twin = edge; edge.twin = this; }
+      }
+
+      class VertexNode {
+        constructor(point){
+          this.point = point;
+          this.prev = null;
+          this.next = null;
+          this.face = null;
+        }
+      }
+      class VertexList {
+        constructor(){
+          this.head = null;
+        }
+        first(){ return this.head; }
+        clear(){ this.head = null; }
+        push(vertex){
+          if(vertex.face){
+            console.error("Vertex already linked");
+          }
+          vertex.next = this.head;
+          if(this.head) this.head.prev = vertex;
+          this.head = vertex;
+          vertex.prev = null;
+        }
+        append(list){
+          if(!list.head) return;
+          if(!this.head){
+            this.head = list.head;
+            return;
+          }
+          let last = list.head;
+          while(last.next) last = last.next;
+          last.next = this.head;
+          this.head.prev = last;
+          this.head = list.head;
+        }
+        remove(vertex){
+          if(vertex.prev) vertex.prev.next = vertex.next;
+          if(vertex.next) vertex.next.prev = vertex.prev;
+          if(vertex === this.head) this.head = vertex.next;
+          vertex.prev = null;
+          vertex.next = null;
+        }
+      }
+
+      const _tmp = new THREE.Vector3();
+      const _tmp1 = new THREE.Vector3();
+      const _tmp2 = new THREE.Vector3();
+
+      THREE.ConvexHull = ConvexHull;
+      THREE.ConvexGeometry = function(points){
+        const vertices = [];
+        const hull = new ConvexHull().setFromPoints(points);
+        const faces = hull.faces;
+        for(let i=0;i<faces.length;i++){
+          const face = faces[i];
+          let edge = face.edge;
+          do{
+            vertices.push(edge.head().x, edge.head().y, edge.head().z);
+            edge = edge.next;
+          }while(edge !== face.edge);
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+        geometry.computeVertexNormals();
+        geometry.computeBoundingBox();
+        geometry.computeBoundingSphere();
+        return geometry;
+      };
+    })();
+
+    // Layout
+    const app = document.getElementById("app");
+    const shell = document.createElement("div");
+    shell.className = "shell";
+    shell.innerHTML = `
+      <div class="panel">
+        <div class="topline">
+          <div class="titles">
+            <div class="eyebrow">Observable-style demo</div>
+            <div class="headline">Interactive 3D k-means</div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><span>Iteration</span><strong id="iterVal">0</strong></div>
+            <div class="metric"><span>SSE</span><strong id="sseVal">--</strong></div>
+            <div class="metric"><span>Status</span><strong id="statusVal">idle</strong></div>
+            <div class="metric"><span>Points</span><strong id="pointsVal">0</strong></div>
+            <div class="metric"><span>Clusters</span><strong id="clustersVal">0</strong></div>
+          </div>
+        </div>
+        <div class="controls"></div>
+      </div>
+      <div class="viewport" id="viewport"></div>
+      <div class="hint">Drag to rotate | Scroll to zoom | Double-click to focus</div>
+    `;
+    app.appendChild(shell);
+
+    // Controls
+    const controls = shell.querySelector(".controls");
+    const kSlider = makeSlider(1, 12, 6, 1, "Clusters (k)");
+    const nSlider = makeSlider(100, 5000, 600, 50, "Points");
+    const spreadSlider = makeSlider(0.08, 0.45, 0.24, 0.01, "Cluster spread");
+    const centroidOpacitySlider = makeSlider(0, 1, 1, 0.05, "Centroid opacity");
+    const pointOpacitySlider = makeSlider(0, 1, 0.9, 0.05, "Points + lines opacity");
+    const btnRow = document.createElement("div");
+    btnRow.className = "btn-row";
+    const stepBtn = document.createElement("button");
+    stepBtn.className = "btn ghost";
+    stepBtn.textContent = "Step";
+    const runBtn = document.createElement("button");
+    runBtn.className = "btn primary";
+    runBtn.textContent = "Run";
+    const resetBtn = document.createElement("button");
+    resetBtn.className = "btn ghost";
+    resetBtn.textContent = "Reset";
+    const randomBtn = document.createElement("button");
+    randomBtn.className = "btn ghost";
+    randomBtn.textContent = "Randomize points";
+    const cloudBtn = document.createElement("button");
+    cloudBtn.className = "btn ghost";
+    cloudBtn.textContent = "Show clouds";
+    const axesBtn = document.createElement("button");
+    axesBtn.className = "btn ghost";
+    axesBtn.textContent = "Hide axes";
+    btnRow.append(stepBtn, runBtn, resetBtn, randomBtn, cloudBtn, axesBtn);
+    controls.append(kSlider.node, nSlider.node, spreadSlider.node, centroidOpacitySlider.node, pointOpacitySlider.node, btnRow);
+
+    // State
+    let points = [];
+    let centroids = [];
+    let assignments = [];
+    let iteration = 0;
+    let centroidOpacity = +centroidOpacitySlider.input.value;
+    let pointOpacity = +pointOpacitySlider.input.value;
+    let running = null;
+    let activeCentroid = null; // selected centroid index or null
+    let axesVisible = true;
+    let cloudVisible = false;
+    let axesScene = null;
+    let axesCam = null;
+    let axesGroup = null;
+    let axesRenderer = null;
+    let cloudGroup = null;
+
+    const iterVal = shell.querySelector("#iterVal");
+    const sseVal = shell.querySelector("#sseVal");
+    const statusVal = shell.querySelector("#statusVal");
+    const pointsVal = shell.querySelector("#pointsVal");
+    const clustersVal = shell.querySelector("#clustersVal");
+
+    // Data generation
+    function makePoints(n, k, spread){
+      const centers = [];
+      const radius = 260;
+      const box = radius * 1.6;
+      const halfBox = box / 2;
+      for(let i=0;i<k;i++){
+        centers.push([
+          Math.random() * box - halfBox,
+          Math.random() * box - halfBox,
+          Math.random() * box - halfBox
+        ]);
+      }
+      const sigma = Math.max(20, spread * radius);
+      return Array.from({length:n}, () => {
+        const c = centers[Math.floor(Math.random()*centers.length)];
+        const dx = randn()*sigma;
+        const dy = randn()*sigma;
+        const dz = randn()*sigma*0.8;
+        return {
+          x: c[0]+dx,
+          y: c[1]+dy,
+          z: c[2]+dz
+        };
+      });
+    }
+
+    function randBetween(min, max){
+      return min + Math.random() * (max - min);
+    }
+
+    function buildHullGeometry(points, inflate=10){
+      if(!Array.isArray(points) || points.length === 0) return null;
+      // Pad with slight jitter if fewer than 4 points to allow a hull
+      const verts = points.map(p=> new THREE.Vector3(p.x, p.y, p.z));
+      while(verts.length < 4){
+        const jitter = new THREE.Vector3(
+          (Math.random()-0.5)*4,
+          (Math.random()-0.5)*4,
+          (Math.random()-0.5)*4
+        );
+        verts.push(verts[0].clone().add(jitter));
+      }
+      if(!THREE.ConvexGeometry) return null;
+      const geom = new THREE.ConvexGeometry(verts);
+      if(inflate !== 0){
+        const centroid = new THREE.Vector3();
+        const pos = geom.attributes.position;
+        const tmp = new THREE.Vector3();
+        for(let i=0;i<pos.count;i++){
+          tmp.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+          centroid.add(tmp);
+        }
+        centroid.multiplyScalar(1/pos.count);
+        for(let i=0;i<pos.count;i++){
+          tmp.set(pos.getX(i), pos.getY(i), pos.getZ(i)).sub(centroid);
+          tmp.setLength(tmp.length() + inflate);
+          pos.setXYZ(i, centroid.x + tmp.x, centroid.y + tmp.y, centroid.z + tmp.z);
+        }
+        pos.needsUpdate = true;
+      }
+      geom.computeVertexNormals();
+      geom.computeBoundingBox();
+      geom.computeBoundingSphere();
+      return geom;
+    }
+
+    function randn(){
+      let u = 0, v = 0;
+      while(u === 0) u = Math.random();
+      while(v === 0) v = Math.random();
+      return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
+
+    // K-means helpers
+    function init(k){
+      if(points.length === 0){
+        points = makePoints(+nSlider.input.value, k, +spreadSlider.input.value);
+      }
+      let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+      for(const p of points){
+        if(p.x<minX) minX=p.x; if(p.x>maxX) maxX=p.x;
+        if(p.y<minY) minY=p.y; if(p.y>maxY) maxY=p.y;
+        if(p.z<minZ) minZ=p.z; if(p.z>maxZ) maxZ=p.z;
+      }
+      const span = Math.max(maxX-minX, maxY-minY, maxZ-minZ, 80);
+      const pad = span * 0.35;
+      centroids = Array.from({length:k}, ()=>({
+        x: randBetween(minX - pad, maxX + pad),
+        y: randBetween(minY - pad, maxY + pad),
+        z: randBetween(minZ - pad, maxZ + pad)
+      }));
+      assignments = new Array(points.length).fill(-1);
+      iteration = 0;
+      updateLabels("ready");
+      update3D();
+    }
+
+    function assign(){
+      let changed = false;
+      for(let i=0;i<points.length;i++){
+        let best = -1, bestDist = Infinity;
+        for(let j=0;j<centroids.length;j++){
+          const dx = points[i].x - centroids[j].x;
+          const dy = points[i].y - centroids[j].y;
+          const dz = points[i].z - centroids[j].z;
+          const d2 = dx*dx + dy*dy + dz*dz;
+          if(d2 < bestDist){
+            bestDist = d2;
+            best = j;
+          }
+        }
+        if(assignments[i] !== best){
+          assignments[i] = best;
+          changed = true;
+        }
+      }
+      return changed;
+    }
+
+    function updateCentroids(){
+      const sums = centroids.map(()=>({x:0,y:0,z:0,count:0}));
+      for(let i=0;i<points.length;i++){
+        const a = assignments[i];
+        if(a>=0){
+          sums[a].x += points[i].x;
+          sums[a].y += points[i].y;
+          sums[a].z += points[i].z;
+          sums[a].count += 1;
+        }
+      }
+      let moved = false;
+      for(let j=0;j<centroids.length;j++){
+        if(sums[j].count > 0){
+          const nx = sums[j].x / sums[j].count;
+          const ny = sums[j].y / sums[j].count;
+          const nz = sums[j].z / sums[j].count;
+          const delta = Math.hypot(nx-centroids[j].x, ny-centroids[j].y, nz-centroids[j].z);
+          centroids[j].x = nx; centroids[j].y = ny; centroids[j].z = nz;
+          if(delta > 1e-4) moved = true;
+        }
+      }
+      return moved;
+    }
+
+    function sse(){
+      let total = 0;
+      for(let i=0;i<points.length;i++){
+        const a = assignments[i];
+        if(a>=0){
+          const dx = points[i].x - centroids[a].x;
+          const dy = points[i].y - centroids[a].y;
+          const dz = points[i].z - centroids[a].z;
+          total += dx*dx + dy*dy + dz*dz;
+        }
+      }
+      return total;
+    }
+
+    function step(){
+      if(centroids.length === 0) return;
+      const changed = assign();
+      const moved = updateCentroids();
+      iteration += 1;
+      updateLabels(changed || moved ? "iterating" : "converged");
+      update3D();
+      if(!changed && !moved) stop();
+      return changed || moved;
+    }
+
+    function run(){
+      stop();
+      running = setInterval(()=> step(), 220);
+      updateLabels("running");
+    }
+    function stop(){
+      if(running){ clearInterval(running); running = null; }
+    }
+    function reset(){
+      stop();
+      points = [];
+      centroids = [];
+      assignments = [];
+      iteration = 0;
+      activeCentroid = null;
+      updateLabels("idle");
+      update3D();
+    }
+
+    function updateLabels(state){
+      iterVal.textContent = iteration.toString();
+      sseVal.textContent = centroids.length ? sse().toFixed(1) : "--";
+      statusVal.textContent = state;
+      pointsVal.textContent = points.length.toString();
+      clustersVal.textContent = centroids.length.toString();
+    }
+
+    // UI wiring
+    stepBtn.onclick = ()=>{ if(!centroids.length) init(+kSlider.input.value); step(); };
+    runBtn.onclick = ()=>{
+      if(running){ stop(); runBtn.textContent = "Run"; statusVal.textContent = "paused"; }
+      else { if(!centroids.length) init(+kSlider.input.value); run(); runBtn.textContent = "Pause"; }
+    };
+    resetBtn.onclick = ()=>{ reset(); runBtn.textContent = "Run"; };
+    randomBtn.onclick = ()=>{
+      stop();
+      points = makePoints(+nSlider.input.value, +kSlider.input.value, +spreadSlider.input.value);
+      centroids = [];
+      assignments = [];
+      iteration = 0;
+      updateLabels("new sample");
+      update3D();
+      runBtn.textContent = "Run";
+    };
+
+    function updateCountsFromSliders(){
+      clustersVal.textContent = kSlider.input.value;
+      pointsVal.textContent = nSlider.input.value;
+    }
+
+    kSlider.input.oninput = ()=>{ updateCountsFromSliders(); if(centroids.length) init(+kSlider.input.value); };
+    nSlider.input.oninput = ()=>{ updateCountsFromSliders(); };
+    centroidOpacitySlider.input.oninput = ()=>{ centroidOpacity = +centroidOpacitySlider.input.value; update3D(); };
+    pointOpacitySlider.input.oninput = ()=>{ pointOpacity = +pointOpacitySlider.input.value; update3D(); };
+
+    // 3D scene setup
+    const viewport = shell.querySelector("#viewport");
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x12243a);
+    scene.fog = new THREE.FogExp2(0x12243a, 0.0009);
+
+    const camera = new THREE.PerspectiveCamera(48, 16/9, 1, 5000);
+    camera.position.set(0, 0, 900);
+
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    viewport.appendChild(renderer.domElement);
+    axesRenderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+    axesRenderer.setPixelRatio(window.devicePixelRatio || 1);
+    axesRenderer.setSize(180, 180);
+    axesRenderer.setClearColor(0x000000, 0);
+    axesRenderer.domElement.className = "axes-overlay";
+    axesRenderer.domElement.style.display = axesVisible ? "block" : "none";
+    viewport.appendChild(axesRenderer.domElement);
+
+    // Lightweight camera controls (orbit + zoom)
+    function makeSimpleOrbit(camera, dom){
+      const target = new THREE.Vector3(0,0,0);
+      const spherical = new THREE.Spherical();
+      let isDragging = false;
+      let lastX = 0, lastY = 0;
+      let azVel = 0, elVel = 0, distVel = 0;
+      const rotateSpeed = 0.005;
+      const zoomSpeed = 0.15;
+      const minDist = 120, maxDist = 3000;
+
+      function syncFromCamera(){
+        const offset = camera.position.clone().sub(target);
+        spherical.setFromVector3(offset);
+      }
+      syncFromCamera();
+
+      function applyMovement(){
+        spherical.theta += azVel;
+        spherical.phi += elVel;
+        spherical.radius = THREE.MathUtils.clamp(spherical.radius + distVel, minDist, maxDist);
+        spherical.phi = THREE.MathUtils.clamp(spherical.phi, 0.05, Math.PI-0.05);
+        const pos = new THREE.Vector3().setFromSpherical(spherical).add(target);
+        camera.position.copy(pos);
+        camera.lookAt(target);
+        azVel *= 0.92; elVel *= 0.92; distVel *= 0.6;
+      }
+
+      function onDown(e){
+        isDragging = true;
+        lastX = e.clientX; lastY = e.clientY;
+        dom.style.cursor = "grabbing";
+      }
+      function onMove(e){
+        if(!isDragging) return;
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        azVel = -dx * rotateSpeed;
+        elVel = -dy * rotateSpeed;
+        lastX = e.clientX; lastY = e.clientY;
+        e.preventDefault();
+      }
+      function onUp(){
+        isDragging = false;
+        dom.style.cursor = "grab";
+      }
+      function onWheel(e){
+        distVel += e.deltaY * zoomSpeed;
+        e.preventDefault();
+      }
+      function focusOnData(){
+        if(Array.isArray(points) && points.length){
+          let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+          for(const p of points){
+            if(p.x<minX) minX=p.x; if(p.x>maxX) maxX=p.x;
+            if(p.y<minY) minY=p.y; if(p.y>maxY) maxY=p.y;
+            if(p.z<minZ) minZ=p.z; if(p.z>maxZ) maxZ=p.z;
+          }
+          const cx = (minX+maxX)/2, cy = (minY+maxY)/2, cz = (minZ+maxZ)/2;
+          const span = Math.max(maxX-minX, maxY-minY, maxZ-minZ, 80);
+          target.set(cx, cy, cz);
+          syncFromCamera();
+          spherical.radius = Math.max(span * 1.2, minDist * 1.1);
+          const pos = new THREE.Vector3().setFromSpherical(spherical).add(target);
+          camera.position.copy(pos);
+          camera.lookAt(target);
+        }else{
+          target.set(0,0,0);
+          syncFromCamera();
+        }
+      }
+      function onDbl(){
+        focusOnData();
+      }
+      dom.addEventListener("pointerdown", onDown);
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      dom.addEventListener("wheel", onWheel, {passive:false});
+      dom.addEventListener("dblclick", onDbl);
+
+      return { update: applyMovement, target };
+    }
+
+    const controls3d = makeSimpleOrbit(camera, renderer.domElement);
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    function pickCentroid(event){
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(centroidMeshes, false);
+      if(hits && hits.length){
+        const idx = hits[0].object.userData.index;
+        if(idx === activeCentroid) activeCentroid = null;
+        else activeCentroid = idx;
+        update3D();
+      }
+    }
+    renderer.domElement.addEventListener("click", pickCentroid);
+    axesBtn.onclick = ()=>{
+      axesVisible = !axesVisible;
+      axesBtn.textContent = axesVisible ? "Hide axes" : "Show axes";
+      ensureAxes();
+      if(axesRenderer){
+        axesRenderer.domElement.style.display = axesVisible ? "block" : "none";
+      }
+    };
+    cloudBtn.onclick = ()=>{
+      cloudVisible = !cloudVisible;
+      cloudBtn.textContent = cloudVisible ? "Hide clouds" : "Show clouds";
+      update3D();
+    };
+
+    // Lighting and atmosphere
+    const ambi = new THREE.AmbientLight( 0x404040,3 ); // soft white light
+    scene.add(ambi);
+    const hemi = new THREE.HemisphereLight(0xb7e4ff, 0x1c283a, 1.05);
+    scene.add(hemi);
+    const dir = new THREE.DirectionalLight(0xffffff, 1.35);
+    dir.position.set(1, 1.3, 2.0);
+    scene.add(dir);
+    const rim = new THREE.PointLight(0xa3ecff, 0.9, 2000, 1.3);
+    rim.position.set(-760, -80, 740);
+    scene.add(rim);
+
+    // Geometry holders
+    const pointBaseGeom = new THREE.SphereGeometry(1.5, 14, 12);
+    const pointMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      emissive: 0xa6e0e0,
+      emissiveIntensity: 10.0,
+      roughness: 0.3,
+      metalness: 0.08,
+      transparent: true,
+      opacity: pointOpacity
+    });
+    let pointsGroup = null;
+
+    let centroidMeshes = [];
+    let linkGeom = new THREE.BufferGeometry();
+    let linkMat = new THREE.LineBasicMaterial({color:0x9fb5c8, transparent:true, opacity:0.25});
+    let linkLines = new THREE.LineSegments(linkGeom, linkMat);
+    scene.add(linkLines);
+
+    function resize(){
+      const w = viewport.clientWidth || 960;
+      const h = Math.max(620, Math.round(w*0.65));
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      if(axesRenderer){
+        const axesSize = Math.min(Math.min(w, h) * 0.25, 220);
+        axesRenderer.setSize(axesSize, axesSize);
+        axesRenderer.domElement.style.width = `${axesSize}px`;
+        axesRenderer.domElement.style.height = `${axesSize}px`;
+      }
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    function makeAxisLabel(text, color, position){
+      const size = 128;
+      const canvas = document.createElement("canvas");
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0,0,size,size);
+      ctx.fillStyle = color;
+      ctx.font = "bold 64px Inter, Arial, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, size/2, size/2);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.minFilter = THREE.LinearFilter;
+      const mat = new THREE.SpriteMaterial({map: tex, depthTest:false, transparent:true, opacity: 0.9});
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.set(24,24,24);
+      sprite.position.copy(position);
+      return sprite;
+    }
+
+    function ensureAxes(){
+      if(axesScene) return;
+      axesScene = new THREE.Scene();
+      axesCam = new THREE.PerspectiveCamera(45, 1, 0.1, 1500);
+      axesCam.position.set(200, 200, 200);
+      axesCam.lookAt(0,0,0);
+      axesGroup = new THREE.Group();
+      const axisLen = 80;
+      const helper = new THREE.AxesHelper(axisLen);
+      helper.material.depthTest = false;
+      helper.material.transparent = true;
+      helper.material.opacity = 0.85;
+      axesGroup.add(helper);
+
+      const labels = new THREE.Group();
+      labels.add(makeAxisLabel("X", "#ff7b7b", new THREE.Vector3(axisLen+12,0,0)));
+      labels.add(makeAxisLabel("Y", "#7bff9c", new THREE.Vector3(0,axisLen+12,0)));
+      labels.add(makeAxisLabel("Z", "#7cb8ff", new THREE.Vector3(0,0,axisLen+12)));
+      axesGroup.add(labels);
+      axesScene.add(axesGroup);
+    }
+
+    function update3D(){
+      const n = points.length;
+
+      // Points grouped by cluster for per-cluster opacity
+      if(pointsGroup) scene.remove(pointsGroup);
+      pointsGroup = new THREE.Group();
+      if(cloudGroup) { scene.remove(cloudGroup); cloudGroup = null; }
+      const clusterPoints = new Map();
+      const hasAssignments = assignments.some(a=> a >= 0);
+      for(let i=0;i<n;i++){
+        const a = assignments[i];
+        if(!clusterPoints.has(a)) clusterPoints.set(a, []);
+        clusterPoints.get(a).push(points[i]);
+      }
+      clusterPoints.forEach((pts, clusterId)=>{
+        const active = (activeCentroid === null) || (clusterId === activeCentroid);
+        const opacity = active ? pointOpacity : 0.08;
+        const mat = new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          emissive: 0xa6e0e0,
+          emissiveIntensity: 10.0,
+          roughness: 0.3,
+          metalness: 0.08,
+          transparent: true,
+          opacity
+        });
+        const inst = new THREE.InstancedMesh(pointBaseGeom, mat, Math.max(1, pts.length));
+        const m = new THREE.Matrix4();
+        const c = new THREE.Color("#ffffff");
+        pts.forEach((p, idx)=>{
+          m.makeTranslation(p.x, p.y, p.z);
+          inst.setMatrixAt(idx, m);
+          inst.setColorAt(idx, c);
+        });
+        inst.instanceMatrix.needsUpdate = true;
+        if(inst.instanceColor) inst.instanceColor.needsUpdate = true;
+        pointsGroup.add(inst);
+      });
+      scene.add(pointsGroup);
+
+      // Cluster clouds
+      if(cloudVisible){
+        cloudGroup = new THREE.Group();
+        clusterPoints.forEach((pts, clusterId)=>{
+          // If we have real assignments, skip the unassigned bucket; otherwise use it.
+          if(clusterId === -1 && hasAssignments) return;
+          let geom = buildHullGeometry(pts, 18);
+          if(!geom){
+            // fallback: padded bounding box so something renders
+            let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+            pts.forEach(p=>{
+              if(p.x<minX) minX=p.x; if(p.x>maxX) maxX=p.x;
+              if(p.y<minY) minY=p.y; if(p.y>maxY) maxY=p.y;
+              if(p.z<minZ) minZ=p.z; if(p.z>maxZ) maxZ=p.z;
+            });
+            const pad = 18;
+            const sizeX = (maxX - minX) + pad*2;
+            const sizeY = (maxY - minY) + pad*2;
+            const sizeZ = (maxZ - minZ) + pad*2;
+            const cx = (minX + maxX)/2;
+            const cy = (minY + maxY)/2;
+            const cz = (minZ + maxZ)/2;
+            geom = new THREE.BoxGeometry(sizeX || pad, sizeY || pad, sizeZ || pad);
+            geom.translate(cx, cy, cz);
+          }
+          const base = new THREE.Color(palette[(clusterId % palette.length + palette.length) % palette.length]);
+          const meshMat = new THREE.MeshPhysicalMaterial({
+            color: base.clone().lerp(new THREE.Color(0xffffff), 0.35),
+            transparent: true,
+            opacity: 0.32,
+            roughness: 0.6,
+            metalness: 0.05,
+            clearcoat: 0.6,
+            clearcoatRoughness: 0.45,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            depthTest: true
+          });
+          const mesh = new THREE.Mesh(geom, meshMat);
+          mesh.renderOrder = 1;
+          cloudGroup.add(mesh);
+
+          const edgeGeom = new THREE.EdgesGeometry(geom);
+          const edgeMat = new THREE.LineBasicMaterial({
+            color: base.clone().lerp(new THREE.Color(0xffffff), 0.35),
+            transparent: true,
+            opacity: 0.55,
+            depthWrite: false,
+            depthTest: false
+          });
+          const edges = new THREE.LineSegments(edgeGeom, edgeMat);
+          edges.renderOrder = 2;
+          cloudGroup.add(edges);
+        });
+        scene.add(cloudGroup);
+      }
+
+      // Centroids
+      centroidMeshes.forEach(m=> scene.remove(m));
+      centroidMeshes = centroids.map((c,i)=>{
+        const base = new THREE.Color(palette[i % palette.length]);
+        const emissive = base.clone().lerp(new THREE.Color(0xffffff), 0.35);
+        const isActive = (activeCentroid === null) || (activeCentroid === i);
+        const mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(16, 26, 20),
+          new THREE.MeshStandardMaterial({
+            color: base,
+            emissive: emissive,
+            emissiveIntensity: 1.25,
+            metalness: 0.15,
+            roughness: 0.22,
+            transparent: true,
+            opacity: isActive ? centroidOpacity : 0.15
+          })
+        );
+        mesh.userData.index = i;
+        mesh.position.set(c.x, c.y, c.z);
+        scene.add(mesh);
+        return mesh;
+      });
+
+      // Links: show only for active cluster if selected
+      const useActive = activeCentroid !== null;
+      const activeCount = useActive ? (clusterPoints.get(activeCentroid)?.length || 0) : n;
+      const linkPos = new Float32Array(activeCount*2*3);
+      let linkIdx = 0;
+      function addLink(p, ccent){
+        linkPos[linkIdx++] = p.x; linkPos[linkIdx++] = p.y; linkPos[linkIdx++] = p.z;
+        linkPos[linkIdx++] = ccent.x; linkPos[linkIdx++] = ccent.y; linkPos[linkIdx++] = ccent.z;
+      }
+      if(useActive){
+        const pts = clusterPoints.get(activeCentroid) || [];
+        pts.forEach(p=>{
+          const ccent = centroids[activeCentroid] || p;
+          addLink(p, ccent);
+        });
+        linkMat.opacity = 0.5 * pointOpacity;
+      }else{
+        for(let i=0;i<n;i++){
+          const p = points[i];
+          const a = assignments[i];
+          const ccent = a>=0 ? centroids[a] : p;
+          addLink(p, ccent);
+        }
+        linkMat.opacity = 0.5 * pointOpacity;
+      }
+      linkGeom.dispose();
+      linkGeom = new THREE.BufferGeometry();
+      if(linkPos.length>0){
+        linkGeom.setAttribute("position", new THREE.BufferAttribute(linkPos, 3));
+      }
+      linkLines.geometry = linkGeom;
+      linkLines.visible = linkPos.length>0; // keep lines visible even when clouds are shown so there's always something to see
+
+      ensureAxes();
+    }
+
+    // Animation loop
+    function renderAxesOverlay(){
+      if(!axesVisible || !axesScene || !axesCam || !axesGroup || !axesRenderer) return;
+      axesGroup.quaternion.copy(camera.quaternion);
+      axesCam.position.set(200, 200, 200);
+      axesCam.lookAt(0,0,0);
+      axesCam.updateProjectionMatrix();
+      axesRenderer.render(axesScene, axesCam);
+    }
+
+    function tick(){
+      requestAnimationFrame(tick);
+      controls3d.update();
+      renderer.render(scene, camera);
+      renderAxesOverlay();
+    }
+    tick();
+
+    function shuffle(arr){
+      return arr.slice().sort(()=> Math.random()-0.5);
+    }
+
+    // Initial seed
+    points = makePoints(+nSlider.input.value, +kSlider.input.value, +spreadSlider.input.value);
+    update3D();
+    updateLabels("idle");
+    updateCountsFromSliders();
+  </script>
+</body>
+</html>

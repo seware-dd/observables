@@ -1,0 +1,1584 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Customer Segmentation Journey</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; overflow-y: auto; }
+    body {
+      margin: 0;
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 12%, rgba(80,140,220,0.18), rgba(5,9,16,0.9)), #050910;
+      color: #eaf3ff;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    a { color: #7fd3ff; }
+    .shell {
+      position: relative;
+      overflow-x: hidden;
+    }
+    .silhouettes {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      mix-blend-mode: screen;
+      opacity: 0.8;
+    }
+    .sil {
+      position: absolute;
+      width: 22px;
+      height: 34px;
+      transform: translate(-50%, -50%) scale(1);
+      transition: opacity 0.6s ease;
+      opacity: 0.95;
+      color: #7fe2ff;
+      filter: drop-shadow(0 0 10px rgba(120,200,255,0.4));
+    }
+    .sil .dot {
+      position: absolute;
+      left: 50%;
+      top: 4px;
+      width: 8px;
+      height: 8px;
+      background: #fff;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      opacity: 0;
+      transition: opacity 0.35s ease;
+      pointer-events: none;
+      filter: drop-shadow(0 0 10px rgba(255,255,255,0.4));
+    }
+    .sil.dot-only {
+      color: #fff;
+      filter: drop-shadow(0 0 8px rgba(255,255,255,0.35));
+    }
+    .sil.dot-only::before,
+    .sil.dot-only::after,
+    .sil.dot-only .limb,
+    .sil.dot-only .shadow,
+    .sil.dot-only .dog,
+    .sil.dot-only .note,
+    .sil.dot-only .shovel {
+      opacity: 0 !important;
+      box-shadow: none !important;
+    }
+    .sil.dot-only .dot {
+      opacity: 0.9;
+    }
+    .sil::before, .sil::after, .sil::marker {
+      content:"";
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      background: currentColor;
+    }
+    .sil::before { /* head */
+      top: -8px;
+      width: var(--head-w, 12px);
+      height: var(--head-h, 12px);
+      border-radius: 50%;
+      box-shadow: 0 0 6px rgba(255,255,255,0.35), 0 0 0 var(--outline-w, 0px) var(--outline-color, transparent);
+      opacity: var(--sil-o, 1);
+      transition: opacity 0.35s ease;
+    }
+    .sil::after { /* body */
+      top: 6px;
+      width: var(--body-w, 16px);
+      height: var(--body-h, 20px);
+      border-radius: var(--body-r, 8px);
+      background: linear-gradient(180deg, rgba(255,255,255,0.92), currentColor);
+      box-shadow: 0 0 12px rgba(120,200,255,0.5), 0 0 0 var(--outline-w, 0px) var(--outline-color, transparent);
+      clip-path: inset(0);
+      opacity: var(--sil-o, 1);
+      transition: opacity 0.35s ease;
+    }
+    .sil.tri::after { /* triangular body */
+      width: 20px;
+      height: 20px;
+      border-radius: 2px;
+      clip-path: polygon(50% 0%, 100% 100%, 0 100%);
+    }
+    .sil::marker { /* legacy pseudo-element kept for compatibility */
+      /* keep minimal footprint so older rules don't clash */
+      display: none;
+    }
+    .sil .limb {
+      position: absolute;
+      width: 2px;
+      background: currentColor;
+      box-shadow: 0 0 0 var(--outline-w, 0px) var(--outline-color, transparent);
+      opacity: 0;
+      transform-origin: top center;
+      animation: limbSwing 3.8s ease-in-out infinite;
+    }
+    .sil .arm { height: 12px; top: 12px; }
+    .sil .arm.left { left: 4px; transform: rotate(-12deg); animation-delay: -0.6s; }
+    .sil .arm.right { right: 4px; transform: rotate(12deg); animation-delay: -0.2s; }
+    .sil .leg { height: 14px; top: 24px; }
+    .sil .leg.left { left: 7px; transform: rotate(-6deg); animation-delay: -0.4s; }
+    .sil .leg.right { right: 7px; transform: rotate(6deg); animation-delay: -0.1s; }
+    .sil .shadow {
+      position: absolute;
+      width: 22px;
+      height: 6px;
+      background: rgba(0,0,0,0.25);
+      border-radius: 50%;
+      bottom: -8px;
+      left: 50%;
+      transform: translateX(-50%);
+      filter: blur(2px);
+      opacity: 0;
+    }
+    /* Simple companion dog to hint at more life-stage/household diversity */
+    .sil .dog {
+      position: absolute;
+      bottom: -10px;
+      left: 56%;
+      width: 18px;
+      height: 9px;
+      background: currentColor;
+      border-radius: 7px 8px 5px 5px;
+      box-shadow: 0 0 12px rgba(127,226,255,0.25);
+      transform: translateX(var(--dog-offset, 10px)) scale(var(--dog-scale, 0.9));
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .sil .dog .legs { /* two little legs using a shadow for the second one */
+      position: absolute;
+      bottom: -3px;
+      left: 4px;
+      width: 4px;
+      height: 5px;
+      background: currentColor;
+      border-radius: 2px;
+      box-shadow: var(--leg-spread, 8px) 0 0 0 currentColor;
+      pointer-events: none;
+      opacity: inherit;
+    }
+    .sil .dog::before { /* head */
+      content:"";
+      position: absolute;
+      right: -7px;
+      top: -1px;
+      width: 8px;
+      height: 7px;
+      background: currentColor;
+      border-radius: 6px;
+    }
+    .sil .dog::after { /* tail */
+      content:"";
+      position:absolute;
+      left: -5px;
+      top: 1px;
+      width: 6px;
+      height: 2px;
+      background: currentColor;
+      border-radius: 2px;
+      transform: rotate(-20deg);
+      transform-origin: right center;
+    }
+    .sil .note { /* quarter/eighth note near the head/shoulder */
+      position: absolute;
+      top: -6px;
+      left: 54%;
+      width: 2px;
+      height: 16px;
+      background: currentColor;
+      transform: translateX(var(--note-offset, 12px)) scale(var(--note-scale, 0.9));
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .sil .note::before { /* head */
+      content:"";
+      position:absolute;
+      bottom: -3px;
+      left: -4px;
+      width: 8px;
+      height: 6px;
+      background: currentColor;
+      border-radius: 55% 55% 50% 50%;
+      transform: rotate(-16deg);
+    }
+    .sil .note::after { /* flag */
+      content:"";
+      position:absolute;
+      top: 0;
+      right: -6px;
+      width: 8px;
+      height: 10px;
+      border: 2px solid currentColor;
+      border-left: none;
+      border-bottom: none;
+      border-radius: 0 8px 0 8px;
+      transform: translateY(-2px) rotate(10deg);
+    }
+    .sil .shovel { /* small shovel resting near feet */
+      position: absolute;
+      bottom: -4px;
+      left: 44%;
+      width: 3px;
+      height: 16px;
+      background: currentColor;
+      border-radius: 2px;
+      transform: translateX(var(--shovel-offset, -10px)) scale(var(--shovel-scale, 1.05));
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .sil .shovel::after { /* blade */
+      content:"";
+      position:absolute;
+      bottom: -2px;
+      left: -3px;
+      width: 9px;
+      height: 6px;
+      background: currentColor;
+      border-radius: 0 0 5px 5px;
+      clip-path: polygon(0 0, 100% 0, 80% 100%, 20% 100%);
+    }
+    @keyframes limbSwing {
+      0%, 100% { transform: rotate(0deg); }
+      50% { transform: rotate(6deg); }
+    }
+    .fx {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 3;
+    }
+    header {
+      position: relative;
+      padding: 80px 24px 120px;
+      background: radial-gradient(circle at 20% 20%, #123a64 0%, #081421 45%, #040810 100%);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 24px 60px rgba(0,0,0,0.45);
+    }
+    .hero {
+      max-width: 1180px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 32px;
+      align-items: center;
+    }
+    .eyebrow { text-transform: uppercase; letter-spacing: 0.12em; font-size: 11px; color: #7fd3ff; }
+    h1 { margin: 10px 0 12px; font-size: 44px; line-height: 1.1; color: #f6fbff; }
+    .lede { color: #b6c9df; font-size: 16px; max-width: 560px; }
+    .pill-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+    .pill {
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.06);
+      color: #dceaff;
+      font-size: 12px;
+    }
+    .glass-card {
+      background: linear-gradient(145deg, rgba(30,54,78,0.72), rgba(12,22,36,0.86));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 12px; }
+    .kpi label { display:block; font-size:12px; color:#9ab4ce; }
+    .kpi strong { display:block; font-size:26px; color:#fff; margin-top:2px; }
+    .prog { height:8px; border-radius:6px; background:rgba(255,255,255,0.08); margin-top:6px; overflow:hidden; }
+    .prog div { height:100%; background:linear-gradient(90deg,#35b6ff,#9cf6ff); width:0; transition:width 0.8s ease; }
+    .scroll-wrap { position: relative; }
+    .step {
+      position: relative;
+      padding: 80px 24px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      background: linear-gradient(180deg, rgba(20,30,45,0.16), rgba(10,14,22,0.6));
+    }
+      /* Additional inter-section spacing: 100px top (except first) and 100px bottom (except last).
+        Use padding to ensure the space is always visible (avoids margin-collapsing). */
+      .step:not(:first-child) { padding-top: 150px; }
+      .step:not(:last-child) { padding-bottom: 150px; }
+    .step-inner { max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: 1.1fr 1fr; gap: 28px; align-items: center; }
+    .step h2 { margin:0 0 10px; font-size: 30px; }
+    .step p { margin: 0 0 12px; color: #b7c8dc; }
+    .badge { display:inline-block; padding:6px 10px; background:rgba(127,211,255,0.12); border:1px solid rgba(127,211,255,0.3); border-radius:10px; color:#9ce1ff; font-size:12px; margin-bottom:10px; }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    #step4 .step-inner { position: relative; }
+    .persona-image {
+      position: absolute;
+      top: 50%;
+      left: -420px;
+      transform: translateY(-50%);
+      width: 360px;
+      height: 440px;
+      border-radius: 18px;
+      background: rgba(10,16,26,0.9);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.08);
+      opacity: 0;
+      transition: opacity 0.5s ease-in, transform 0.6s ease;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      gap: 14px;
+    }
+    .persona-image img {
+      max-width: 100%;
+      max-height: 360px;
+      object-fit: contain;
+      border-radius: 14px;
+      display: block;
+    }
+    .persona-image .caption {
+      color: #eaf3ff;
+      font-weight: 700;
+      font-size: 15px;
+      text-align: center;
+    }
+    .list { list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+    .list li { padding:10px 12px; border-radius:10px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.05); color:#c8d8ec; }
+    .chart { height: 240px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: radial-gradient(circle at 30% 30%, rgba(120,180,255,0.18), rgba(0,0,0,0)); position: relative; overflow:hidden; }
+    .bar {
+      position:absolute;
+      bottom:16px;
+      width:18px;
+      border-radius: 6px 6px 2px 2px;
+      background: linear-gradient(180deg,#5ed0ff,#2f89ff);
+      box-shadow: 0 8px 25px rgba(47,137,255,0.3);
+      transform: translateZ(0);
+      transition: height 0.8s ease, opacity 0.6s ease;
+      animation: pulse 4s ease-in-out infinite;
+      animation-delay: calc(var(--i, 0) * 0.08s);
+    }
+    .scatter {
+      position: relative;
+      height: 260px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: radial-gradient(circle at 40% 40%, rgba(90,210,255,0.12), rgba(0,0,0,0));
+      overflow:hidden;
+    }
+    .dot {
+      position:absolute;
+      width:8px; height:8px;
+      border-radius:50%;
+      background: #7fe2ff;
+      box-shadow: 0 0 14px rgba(127,226,255,0.9);
+      opacity: 0.9;
+      transition: transform 0.8s ease, opacity 0.8s ease;
+      animation: drift 6s ease-in-out infinite alternate;
+      animation-delay: calc(var(--i, 0) * 0.05s);
+    }
+    @keyframes pulse {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.25); }
+    }
+    @keyframes drift {
+      0% { transform: translate(-50%, -50%) scale(1); }
+      100% { transform: translate(-48%, -52%) scale(1.1); }
+    }
+    .profile-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap:14px; }
+    .profile {
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      position: relative;
+    }
+    .profile h4 { margin:0 0 6px; color:#fff; }
+    .tag { display:inline-block; padding:4px 8px; border-radius:8px; background:rgba(255,255,255,0.08); margin:2px; font-size:12px; color:#c7d8ec; }
+    .click-indicator {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: rgba(127,211,255,0.18);
+      border: 1px solid rgba(127,211,255,0.35);
+      color: #dceaff;
+      font-size: 12px;
+      font-weight: 700;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+    .cta {
+      text-align:center;
+      padding: 170px 20px 190px;
+      background: radial-gradient(circle at 60% 30%, rgba(90,200,255,0.18), rgba(0,0,0,0));
+    }
+    .cta h2 { font-size:34px; margin:0 0 12px; }
+    .cta p { color:#b9cce0; max-width:640px; margin:0 auto 18px; }
+    .cta .btn { font-size:16px; padding:10px 18px; }
+    .progress-line {
+      position: fixed;
+      left: 12px; top: 20%; width: 4px; height: 60%; border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      overflow:hidden;
+      pointer-events: none;
+      z-index: 4;
+    }
+    .progress-line div {
+      position:absolute; left:0; bottom:0; width:100%; background:linear-gradient(180deg,#4db8ff,#9bf5ff); border-radius:999px; height:0%;
+      transition: height 0.2s ease;
+    }
+    .scroll-indicator {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      z-index: 6;
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(10,16,26,0.7);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      color: #eaf3ff;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.03em;
+    }
+    .to-top {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 5;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.08);
+      color: #eaf3ff;
+      padding: 10px 12px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-weight: 700;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    }
+    @media (max-width: 960px){
+      .hero { grid-template-columns: 1fr; }
+      .step-inner { grid-template-columns: 1fr; }
+      .progress-line { display:none; }
+    }
+    /* Extra spacing adjustments */
+    #step5 { margin-bottom: 100px; }
+    .cta { margin: 100px 0; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <canvas id="fxCanvas" class="fx"></canvas>
+    <div class="silhouettes" id="silWrap"></div>
+    <div class="progress-line"><div id="progressFill"></div></div>
+    <div class="scroll-indicator" id="scrollIndicator">1%</div>
+    <header>
+      <div class="hero">
+        <div>
+          <div class="eyebrow">Customer segmentation</div>
+          <h1>From messy customer data to clear customer groups</h1>
+          <p class="lede">A simple visual walkthrough of how we turn customer behavior and interests into easy-to-use segments for personalized communications.</p>
+          <div class="pill-row">
+            <span class="pill">Collect</span>
+            <span class="pill">Clean</span>
+            <span class="pill">Compress</span>
+            <span class="pill">Cluster</span>
+            <span class="pill">Communicate</span>
+          </div>
+        </div>
+        <div class="glass-card">
+          <div class="kpi-grid">
+            <div class="kpi"><label>Customers</label><strong id="kpiCustomers">120k</strong><div class="prog"><div id="progCust"></div></div></div>
+            <div class="kpi"><label>Signals</label><strong id="kpiSignals">480</strong><div class="prog"><div id="progSig"></div></div></div>
+            <div class="kpi"><label>Clusters</label><strong id="kpiClusters">12</strong><div class="prog"><div id="progClu"></div></div></div>
+            <div class="kpi"><label>Lift</label><strong id="kpiLift">+18%</strong><div class="prog"><div id="progLift"></div></div></div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="scroll-wrap">
+      <section class="step" id="step1">
+        <div class="step-inner">
+          <div>
+            <div class="badge">01 · Collect & clean</div>
+            <h2>Bring the signals together</h2>
+            <p>Every email open, page click and purchase as well as customer interests are pulled into one view. This provides a 360-degree view of each customer.</p>
+            <ul class="list">
+              <li>When was their last email opened?</li>
+              <li>How long have they been a member?</li>
+              <li>What are their hobbies?</li>
+              <li>Do they like to travel?</li>
+              <li>What is there household income range?</li>
+            </ul>
+          </div>
+          <div class="chart" id="chart1"></div>
+        </div>
+      </section>
+
+      <section class="step" id="step2">
+        <div class="step-inner">
+          <div>
+            <div class="badge">02 · Feature shaping</div>
+            <h2>Turn customer knowledge into clear signals</h2>
+            <p>Recency, frequency, spend, engagement and customer interests roll up into hundreds of easy-to-read columns. Then we squash them down so the important stuff stays and noise drops out.</p>
+            <div class="card" id="chart2"></div>
+          </div>
+          <div class="card">
+            <p><strong>Primary Factors </strong><br/>Collpase all of the information we have into those that matter most.</p>
+            <p><strong>Outcomes</strong><br/>Understand which factors work together to yield results.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="step" id="step3">
+        <div class="step-inner">
+          <div>
+            <div class="badge">03 · Grouping</div>
+            <h2>Let the data pick its own teams</h2>
+            <p>"Clustering" these factors will find natural groups of customers that behave similarly.</p>
+            <ul class="list">
+              <li>Plot customer behaviors in a multi-dimensional space.</li>
+              <li>Visualize the natural clusters that predict customer similarity.</li>
+              <li>Mathematically determine which cluster every customer belongs to.</li>
+              <li>These are our customer segments.</li>
+            </ul>
+            <button class="btn primary" onclick="window.open('cluster3.html','_blank')">Launch clustering demo</button>
+          </div>
+          <div class="scatter" id="chart3"></div>
+        </div>
+      </section>
+
+      <section class="step" id="step4">
+        <div class="step-inner">
+          <div>
+            <div class="badge">04 · Name the groups</div>
+            <h2>Give each segment a simple story</h2>
+            <p>Translate the math into plain language: who they are, how they shop, and what makes them say yes. Every group gets a short label your team can use.</p>
+            <div class="profile-grid" id="profiles"></div>
+          </div>
+          <div class="card">
+            <p><strong>Explainability</strong><br/>Top drivers per segment come from the factors determined previously. This gives us levers to pull.</p>
+            <p><strong>Outputs</strong><br/>Character development bring each segment to life with a customized personality that you can market and sell to.</p>
+          </div>
+          <div class="persona-image" id="personaImage">
+            <img alt="" />
+            <div class="caption"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="step" id="step5">
+        <div class="step-inner">
+          <div>
+            <div class="badge">05 · Activate</div>
+            <h2>Send the right message to each group</h2>
+            <p>Plug segments and personas into targeting, recommendations, and sales tactics.</p>
+            <ul class="list">
+              <li>Email, push, onsite personalization</li>
+              <li>Test vs. control; keep the winners</li>
+              <li>Auto-refresh as behavior shifts</li>
+            </ul>
+          </div>
+          <div class="card">
+            <p><strong>Measured Impact</strong><br/>Churn risk ↓, LTV ↑, CAC efficiency ↑. Observe → cluster → act → measure.</p>
+            <p><strong>Future Leads</strong><br/>Enhance lead generation with prospects that look like our favorite customers.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="cta">
+      <h2>Ready to spotlight your customers with the right messages?</h2>
+      <p></p>
+    </div>
+    <button class="to-top" id="toTop">Back to top</button>
+  </div>
+
+  <script>
+    // simple random utilities
+    const rand = (a,b)=> a + Math.random()*(b-a);
+    const choose = arr => arr[Math.floor(Math.random()*arr.length)];
+    const clamp = (v,min,max)=> Math.max(min, Math.min(max,v));
+    const ramp = (startPct, endPct, progress)=> {
+      const s = (startPct || 0) / 100;
+      const e = (endPct || 100) / 100;
+      return clamp((progress - s) / Math.max(0.0001, e - s), 0, 1);
+    };
+    const wrapLines = (ctx, text, maxWidth)=>{
+      const words = text.split(" ");
+      const lines = [];
+      let line = "";
+      words.forEach(word=>{
+        const test = line ? `${line} ${word}` : word;
+        if(ctx.measureText(test).width <= maxWidth || !line){
+          line = test;
+        } else {
+          lines.push(line);
+          line = word;
+        }
+      });
+      if(line) lines.push(line);
+      return lines;
+    };
+
+    // ONE SPOT TO TUNE ALL TIMINGS (change numbers only):
+    // - Every value is an absolute scroll percent (0-100) matching the top-right overlay.
+    // - Starts mark when an animation begins; ends mark when it should be fully on.
+    const TIMING = {
+      // Silhouette detail (limbs/shadows) in Step 1: Collect & Clean, Step 2: Feature Shaping
+      silhouetteDetailCollectStartPct: 5,   // Begin limbs/shadows while in “Bring the signals together” (Collect & Clean)
+      silhouetteDetailCollectEndPct: 8,    // Limbs/shadows fully visible by this percent in Collect & Clean
+
+      // Feature particles (lift from silhouettes, settle into PCA molecules) across early sections
+      featureParticlesLiftStartPct: 22,     // Particles start lifting off people in Collect/Feature Shaping
+      featureParticlesLiftEndPct: 38,       // Particle lift fully engaged by this percent
+      featureParticlesSettleStartPct: 35,   // Particles start converging toward PCA nodes
+      featureParticlesSettleEndPct: 38,     // Particles fully settled by this percent
+
+      // Clustering visuals (lines, centroids) in Step 3: Grouping
+      clusterVisualStartPct: 40,            // Start drawing clustering lines/centroids
+      clusterVisualEndPct: 50,              // Clustering visuals fully in by this percent
+
+      // Personas and icons in Step 4: Name the Groups
+      personaRevealStartPct: 62,            // Persona detail cards/icons begin appearing
+      personaRevealEndPct: 74,              // Persona details/icons fully visible by this percent
+      segmentIconStartPct: 64,              // Cluster icons start appearing around the segment/story area
+      segmentIconEndPct: 78,                // Cluster icons fully visible by this percent
+
+      // Messaging/activation layer (Step 5)
+      messageIconStartPct: 82,              // Messaging icons allowed to begin
+      messageIconEndPct: 92,                // Messaging icons fully visible by this percent
+      envelopeFlightStartPct: 84,           // Envelopes begin flying toward active clusters
+      envelopeFlightEndPct: 100,            // Envelopes stop after this percent
+      focusZoomStartPct: 86,                // Clusters begin to pull/scale toward center in messaging
+      focusZoomEndPct: 95,                  // Focus/zoom effect fully applied by this percent
+      activationPhaseStartPct: 84,          // Messaging/activation visuals begin
+      activationPhaseEndPct: 100,           // Activation visuals fully active by this percent
+      clusterCycleStartPct: 93,             // Start the serial cluster focus loop (bottom-of-page orchestrator)
+
+      // Weights/damping (not time-based)
+      clusterPullWhileFeatures: 0.01       // Damp clustering until feature particles settle
+    };
+
+    // KPI animations
+    const progCust = document.getElementById("progCust");
+    const progSig = document.getElementById("progSig");
+    const progClu = document.getElementById("progClu");
+    const progLift = document.getElementById("progLift");
+    const kpiCustomers = document.getElementById("kpiCustomers");
+    const kpiSignals = document.getElementById("kpiSignals");
+    const kpiClusters = document.getElementById("kpiClusters");
+    const kpiLift = document.getElementById("kpiLift");
+
+    function animateKPIs(){
+      const cust = Math.floor(rand(90,140))*1000;
+      const sig = Math.floor(rand(380,520));
+      const clu = Math.floor(rand(8,16));
+      const lift = rand(12,22).toFixed(1);
+      kpiCustomers.textContent = cust.toLocaleString();
+      kpiSignals.textContent = sig;
+      kpiClusters.textContent = clu;
+      kpiLift.textContent = `+${lift}%`;
+      progCust.style.width = `${rand(55,95)}%`;
+      progSig.style.width = `${Math.min(100, sig/6)}%`;
+      progClu.style.width = `${Math.min(100, clu*6)}%`;
+      progLift.style.width = `${Math.min(100, lift*4)}%`;
+    }
+    animateKPIs();
+    setInterval(animateKPIs, 4000);
+
+    // Step 1 bars
+    function buildBars(){
+      const chart = document.getElementById("chart1");
+      chart.innerHTML = "";
+      const cats = 14;
+      for(let i=0;i<cats;i++){
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        const h = rand(30, 200);
+        bar.style.height = `${h}px`;
+        bar.style.left = `${18 + i*26}px`;
+        bar.style.opacity = `${rand(0.55, 0.9)}`;
+        bar.style.setProperty("--i", i);
+        chart.appendChild(bar);
+      }
+    }
+    buildBars();
+    setInterval(buildBars, 4000);
+
+    // Step 2 variance bars
+    function buildVariance(){
+      const chart = document.getElementById("chart2");
+      chart.innerHTML = "<h4 style='margin:0 0 12px;color:#e6f3ff'>Variance captured by top components</h4>";
+      const wrap = document.createElement("div");
+      wrap.style.display="grid";
+      wrap.style.gridTemplateColumns="repeat(auto-fit,minmax(140px,1fr))";
+      wrap.style.gap="10px";
+      for(let i=0;i<9;i++){
+        const card = document.createElement("div");
+        card.className="card";
+        const pct = rand(4,18);
+        card.innerHTML = `<div style="font-size:12px;color:#9bb4ce">PC${i+1}</div><div style="font-size:22px;color:#fff">${pct.toFixed(1)}%</div><div class="prog" style="margin-top:6px"><div style="width:${pct}%; background:linear-gradient(90deg,#5ed0ff,#2f89ff);"></div></div>`;
+        wrap.appendChild(card);
+      }
+      chart.appendChild(wrap);
+    }
+    buildVariance();
+
+    // Step 3 scatter
+    function buildScatter(){
+      const scat = document.getElementById("chart3");
+      scat.innerHTML = "";
+      const dots = 180;
+      for(let i=0;i<dots;i++){
+        const d = document.createElement("div");
+        d.className="dot";
+        const x = rand(6, 94);
+        const y = rand(6, 88);
+        d.style.left = `${x}%`;
+        d.style.top = `${y}%`;
+        const scale = rand(0.8, 1.2);
+        d.style.transform = `translate(-50%, -50%) scale(${scale})`;
+        d.style.opacity = rand(0.55, 1);
+        d.style.background = choose(["#7fe2ff","#9bf8ff","#65b4ff","#7affd8"]);
+        d.style.setProperty("--i", i);
+        scat.appendChild(d);
+      }
+    }
+    buildScatter();
+    setInterval(buildScatter, 5000);
+
+    // Step 4 profiles
+    const profiles = [
+      {name:"Family Protector", tags:["Evening reader","Household focus","Opens promos","Churn: Low","LTV: Mid","Engagement: Medium"], note:"Checks updates at night. Prioritizes family safety gear and guidance."},
+      {name:"Range Regular", tags:["Weekend active","Training content","Buys in bursts","Churn: Low","LTV: High","Engagement: High"], note:"Plans range trips on Fri/Sat. Engages with drills and refreshers."},
+      {name:"Everyday Carrier", tags:["Commute hours","Gear-curious","Saves for later","Churn: Medium","LTV: Mid","Engagement: Medium"], note:"Browses EDC tips during commute; compares holsters and quick wins."},
+      {name:"New Learner", tags:["Early journey","Short sessions","Training-first","Churn: Elevated","LTV: Low","Engagement: Low"], note:"Still exploring fundamentals; responds to simple, confidence-building steps."}
+    ];
+    const personaImageBox = document.getElementById("personaImage");
+    const personaImageEl = personaImageBox ? personaImageBox.querySelector("img") : null;
+    const personaImageCaption = personaImageBox ? personaImageBox.querySelector(".caption") : null;
+    function getPersonaTargetCenter(){
+      if(!personaImageBox) return {x:0,y:0};
+      const prev = personaImageBox.style.transform;
+      personaImageBox.style.transform = "translateY(-50%) translate(0px, 0px) scale(1)";
+      const rect = personaImageBox.getBoundingClientRect();
+      personaImageBox.style.transform = prev;
+      return {x: rect.left + rect.width/2, y: rect.top + rect.height/2};
+    }
+    function setPersonaTransform(name, active){
+      if(!personaImageBox) return;
+      const {x: targetX, y: targetY} = getPersonaTargetCenter();
+      const centroidIdx = personaCentroidMap[name] ?? 0;
+      const centroid = personaTargets[centroidIdx] || personaTargets[0];
+      const centroidX = (centroid.x/100) * window.innerWidth;
+      const centroidY = (centroid.y/100) * window.innerHeight;
+      const dx = centroidX - targetX;
+      const dy = centroidY - targetY;
+      const startScale = 0.4;
+      if(active){
+        personaImageBox.style.transform = `translateY(-50%) translate(0px, 0px) scale(1)`;
+      } else {
+        personaImageBox.style.transform = `translateY(-50%) translate(${dx}px, ${dy}px) scale(${startScale})`;
+      }
+    }
+
+    function showPersonaImage(name, show){
+      const img = personaImageMap[name];
+      if(!personaImageBox) return;
+      if(show && img){
+        if(personaImageEl){
+          personaImageEl.src = img;
+          personaImageEl.alt = name;
+        }
+        if(personaImageCaption){
+          personaImageCaption.textContent = name;
+        }
+        personaImageBox.style.transition = "none";
+        setPersonaTransform(name, false);
+        personaImageBox.style.opacity = "0";
+        void personaImageBox.offsetWidth; // force reflow
+        personaImageBox.style.transition = "opacity 0.5s ease, transform 0.6s ease";
+        requestAnimationFrame(()=>{
+          personaImageBox.style.opacity = "1";
+          setPersonaTransform(name, true);
+        });
+      } else {
+        personaImageBox.style.opacity = "0";
+        setPersonaTransform(name, false);
+      }
+    }
+    function buildProfiles(){
+      const grid = document.getElementById("profiles");
+      grid.innerHTML = "";
+      profiles.forEach(p=>{
+        const card = document.createElement("div");
+        card.className="profile";
+        card.onmousedown = ()=>{ showPersonaImage(p.name, true); card.style.border = "2px solid #fff"; };
+        card.onmouseup = ()=>{ showPersonaImage(p.name, false); card.style.border = "1px solid rgba(255,255,255,0.08)"; };
+        card.onmouseleave = ()=>{ showPersonaImage(p.name, false); card.style.border = "1px solid rgba(255,255,255,0.08)"; };
+        const tags = p.tags.map(t=> `<span class="tag">${t}</span>`).join("");
+        card.innerHTML = `<span class="click-indicator" title="Press to preview persona">☝</span><h4>${p.name}</h4><div>${tags}</div><p style="color:#a9c2dc;margin:10px 0 0">${p.note}</p>`;
+        grid.appendChild(card);
+      });
+    }
+    buildProfiles();
+
+    // Scroll progress line
+    const progressFill = document.getElementById("progressFill");
+    const scrollIndicator = document.getElementById("scrollIndicator");
+    const steps = Array.from(document.querySelectorAll(".step"));
+    const observer = new IntersectionObserver(entries=>{
+      entries.forEach(e=>{
+        if(e.isIntersecting){
+          const idx = steps.indexOf(e.target);
+          const pct = ((idx+1)/steps.length)*100;
+          progressFill.style.height = `${pct}%`;
+          // animate bars/dots on enter
+          if(e.target.id==="step1") buildBars();
+          if(e.target.id==="step2") buildVariance();
+          if(e.target.id==="step3") buildScatter();
+        }
+      });
+    }, {threshold:0.4});
+    steps.forEach(s=> observer.observe(s));
+    document.getElementById("toTop").onclick = ()=> window.scrollTo({top:0, behavior:"smooth"});
+
+    // Silhouette field and FX canvas: morph from chaos -> PCA -> clusters -> activation
+    const silWrap = document.getElementById("silWrap");
+    const fxCanvas = document.getElementById("fxCanvas");
+    const ctx = fxCanvas.getContext("2d");
+    function resizeCanvas(){
+      fxCanvas.width = window.innerWidth;
+      fxCanvas.height = window.innerHeight;
+    }
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("mousedown", (e)=>{
+      const rect = fxCanvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const hit = chipHitboxes.find(h=> x>=h.x && x<=h.x+h.w && y>=h.y && y<=h.y+h.h);
+      pressedChipIdx = hit ? hit.idx : null;
+    });
+    window.addEventListener("mouseup", ()=>{ pressedChipIdx = null; });
+    window.addEventListener("mouseleave", ()=>{ pressedChipIdx = null; });
+
+    const personaTargets = [
+      {x: 22, y: 68},
+      {x: 46, y: 74},
+      {x: 64, y: 69},
+      {x: 78, y: 76}
+    ];
+    const centroidColors = ["#7fe2ff","#ff9b9b","#9dffaf","#ffc87f"];
+    const people = [];
+    const personCount = 32;
+    const bodyStyles = [
+      {w:"12px", h:"18px", r:"7px"}, // extra slim
+      {w:"14px", h:"18px", r:"8px"}, // thin
+      {w:"16px", h:"20px", r:"9px"}, // medium
+      {w:"18px", h:"22px", r:"10px"} // fuller
+    ];
+    for(let i=0;i<personCount;i++){
+      const el = document.createElement("div");
+      el.className = "sil";
+      if(Math.random() < 0.45) el.classList.add("tri"); // triangle body for women silhouettes
+      silWrap.appendChild(el);
+      const cluster = i % 4;
+      const hueShift = cluster*90 + rand(-15,15);
+      el.style.color = `hsl(${hueShift}, 80%, 70%)`;
+      const headScale = choose([0.9,1,1.1]);
+      const headW = 12*headScale;
+      const headH = 12*headScale;
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      el.appendChild(dot);
+      const body = choose(bodyStyles);
+      el.style.setProperty("--head-w", `${headW}px`);
+      el.style.setProperty("--head-h", `${headH}px`);
+      el.style.setProperty("--body-w", body.w);
+      el.style.setProperty("--body-h", body.h);
+        el.style.setProperty("--body-r", body.r);
+      const baseX = Math.random()*100;
+      const baseY = Math.random()*60 + 8;
+      // limbs
+      ["arm left","arm right","leg left","leg right"].forEach(cls=>{
+        const limb = document.createElement("span");
+        limb.className = `limb ${cls}`;
+        el.appendChild(limb);
+      });
+      // shadow
+      const shadow = document.createElement("span");
+      shadow.className = "shadow";
+      el.appendChild(shadow);
+      // occasional dog companion to signal more demographic variety
+      let dog = null;
+      if(Math.random() < 0.28){
+        dog = document.createElement("span");
+        dog.className = "dog";
+        dog.style.setProperty("--dog-offset", `${rand(6,14)}px`);
+        dog.style.setProperty("--dog-scale", rand(0.75, 1.05));
+        dog.style.setProperty("--leg-spread", `${rand(6,10)}px`);
+        const legs = document.createElement("span");
+        legs.className = "legs";
+        dog.appendChild(legs);
+        el.appendChild(dog);
+      }
+      let note = null;
+      if(Math.random() < 0.22){
+        note = document.createElement("span");
+        note.className = "note";
+        note.style.setProperty("--note-offset", `${rand(8,14)}px`);
+        note.style.setProperty("--note-scale", rand(0.75, 1.05));
+        el.appendChild(note);
+      }
+      let shovel = null;
+      if(Math.random() < 0.18){
+        shovel = document.createElement("span");
+        shovel.className = "shovel";
+        shovel.style.setProperty("--shovel-offset", `${-rand(8,16)}px`);
+        shovel.style.setProperty("--shovel-scale", rand(0.9, 1.2));
+        el.appendChild(shovel);
+      }
+
+      people.push({
+        el,
+        baseX,
+        baseY,
+        wobble: Math.random()*Math.PI*2,
+        size: rand(0.85, 1.3),
+        cluster,
+        jitter: {x:rand(-10,10), y:rand(-7,7)},
+        dog,
+        note,
+        shovel,
+        dot,
+        posX: baseX,
+        posY: baseY
+      });
+    }
+
+    // Feature particles and envelopes
+    const moleculeCount = 6;
+    const moleculeGlows = [
+      {glowSoft:"rgba(127,226,255,0.35)", glowSolid:"rgba(127,226,255,0.9)"},
+      {glowSoft:"rgba(255,155,155,0.35)", glowSolid:"rgba(255,155,155,0.9)"},
+      {glowSoft:"rgba(157,255,175,0.35)", glowSolid:"rgba(157,255,175,0.9)"},
+      {glowSoft:"rgba(255,200,127,0.35)", glowSolid:"rgba(255,200,127,0.9)"},
+      {glowSoft:"rgba(200,155,255,0.35)", glowSolid:"rgba(200,155,255,0.9)"},
+      {glowSoft:"rgba(122,255,216,0.35)", glowSolid:"rgba(122,255,216,0.9)"}
+    ];
+    const features = Array.from({length:120}, (_,i)=>({
+      x: 0, y: 0, sx:0, sy:0, t:0,
+      alive: false,
+      targetIndex: i % moleculeCount
+    }));
+    const envelopes = [];
+    const spotlights = Array.from({length:3}, (_,i)=>({
+      seed: Math.random()*Math.PI*2,
+      baseOffset: rand(-80,80),
+      speedX: rand(0.75, 1.25),
+      speedY: rand(0.7, 1.2),
+      phaseX: Math.random()*Math.PI*2,
+      phaseY: Math.random()*Math.PI*2
+    }));
+    let pressedChipIdx = null;
+    let chipHitboxes = [];
+    const clusterIconMeta = [
+      {label:"Family Protector", face:"style1", image:"family_protector.png"},
+      {label:"Range Regular", face:"style2", image:"range_regular.png"},
+      {label:"Everyday Carrier", face:"style3", image:"edc.png"},
+      {label:"New Learner", face:"style4", image:"new_learner.png"}
+    ];
+    const personaImages = {};
+    const personaImageSources = {
+      "family_protector.png": "family_protector.png",
+      "range_regular.png": "range_regular.png",
+      "edc.png": "edc.png",
+      "new_learner.png": "new_learner.png"
+    };
+    const personaImageMap = {
+      "Family Protector": "family_protector.png",
+      "Range Regular": "range_regular.png",
+      "Everyday Carrier": "edc.png",
+      "New Learner": "new_learner.png"
+    };
+    const personaCentroidMap = {
+      "Family Protector": 0,
+      "Range Regular": 1,
+      "Everyday Carrier": 2,
+      "New Learner": 3
+    };
+    Object.entries(personaImageSources).forEach(([key, src])=>{
+      const img = new Image();
+      personaImages[key] = {img, ready:false};
+      img.onload = ()=> personaImages[key].ready = true;
+      img.src = src;
+    });
+    // bottom-of-page focus orchestrator state
+    let cycleState = {active:false, idx:0, phase:"idle", mailSent:false};
+
+    function normSection(el){
+      const rect = el.getBoundingClientRect();
+      const vh = window.innerHeight;
+      const prog = 1 - clamp((rect.top - vh*0.2)/(vh*0.9), 0, 1);
+      return prog;
+    }
+
+    function drawFace(ctx, x, y, mood, color){
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(x, y, 9, 0, Math.PI*2);
+      ctx.stroke();
+      // eyes
+      ctx.beginPath(); ctx.arc(x-3, y-2, 1.2, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x+3, y-2, 1.2, 0, Math.PI*2); ctx.stroke();
+      // mouth
+      ctx.beginPath();
+      if(mood > 0){
+        ctx.arc(x, y+2, 4, 0, Math.PI, false); // smile
+      }else if(mood < 0){
+        ctx.arc(x, y+6, 4, Math.PI, 0, false); // frown
+      }else{
+        ctx.moveTo(x-4, y+4); ctx.lineTo(x+4, y+4); // neutral
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawPersonaFace(ctx, x, y, scale, type, color){
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(scale, scale);
+      // flat icon palettes for high contrast
+      const palettes = {
+        style1: {fill:"#ffb347", stroke:"#0b1020", accent:"#1dd0ff"},
+        style2: {fill:"#6ae0ff", stroke:"#0b1020", accent:"#ff7ba9"},
+        style3: {fill:"#9ff3c6", stroke:"#0b1020", accent:"#ffcc66"},
+        style4: {fill:"#ffc6d9", stroke:"#0b1020", accent:"#6ae0ff"}
+      };
+      const pal = palettes[type] || palettes.style1;
+      // head
+      ctx.fillStyle = pal.fill;
+      ctx.strokeStyle = pal.stroke;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 12, 0, Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+      // eyes + mouth (minimal)
+      ctx.strokeStyle = pal.stroke;
+      ctx.lineWidth = 1.8;
+      ctx.beginPath(); ctx.moveTo(-4, -2); ctx.lineTo(-1, -2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(1, -2); ctx.lineTo(4, -2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 5, 4, 0, Math.PI, false); ctx.stroke();
+      // accent patterns per style
+      ctx.fillStyle = pal.accent;
+      ctx.strokeStyle = pal.accent;
+      if(type === "style1"){
+        ctx.save();
+        ctx.rotate(-0.5);
+        ctx.globalAlpha = 0.7;
+        ctx.fillRect(-14, -3, 28, 6);
+        ctx.restore();
+      } else if(type === "style2"){
+        ctx.save();
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.arc(-6, -6, 3, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(6, -2, 3, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      } else if(type === "style3"){
+        ctx.save();
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(-12, 0);
+        ctx.lineTo(0, -10);
+        ctx.lineTo(12, 0);
+        ctx.lineTo(0, 10);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+      } else if(type === "style4"){
+        ctx.save();
+        ctx.globalAlpha = 0.7;
+        ctx.beginPath();
+        ctx.arc(0, -8, 5, 0, Math.PI*2); ctx.fill();
+        ctx.fillRect(-10, -3, 20, 4);
+        ctx.restore();
+      }
+      // outline shoulders simplified
+      ctx.strokeStyle = pal.stroke;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-14, 12);
+      ctx.quadraticCurveTo(0, 18, 14, 12);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function animate(){
+      requestAnimationFrame(animate);
+      const now = performance.now();
+      chipHitboxes = [];
+      const totalProg = clamp((window.scrollY) / Math.max(1, (document.body.scrollHeight - window.innerHeight)), 0, 1); // 0=top, 1=bottom
+      const scrollPct = Math.max(1, Math.min(100, Math.round(totalProg * 100)));
+      if(scrollIndicator) scrollIndicator.textContent = `${scrollPct}%`;
+      const clusterProgress = ramp(TIMING.clusterVisualStartPct, TIMING.clusterVisualEndPct, totalProg);
+      const messagePhase = ramp(TIMING.activationPhaseStartPct, TIMING.activationPhaseEndPct, totalProg);
+      const personaActive = ramp(TIMING.personaRevealStartPct, TIMING.personaRevealEndPct, totalProg);
+      const messageActive = totalProg > (TIMING.activationPhaseStartPct/100);
+      // bottom-of-page focus orchestration: serial steps per cluster
+      const cycleActive = totalProg > (TIMING.clusterCycleStartPct/100);
+      if(!cycleActive){
+        cycleState = {active:false, idx:0, phase:"idle", progress:0, mailSent:false};
+      } else if(!cycleState.active){
+        cycleState = {active:true, idx:0, phase:"center", progress:0, mailSent:false};
+      }
+      const featureRamp = Math.max(
+        ramp(TIMING.featureParticlesLiftStartPct, TIMING.featureParticlesLiftEndPct, totalProg),
+        ramp(TIMING.featureParticlesSettleStartPct, TIMING.featureParticlesSettleEndPct, totalProg)
+      );
+      const featureActive = featureRamp * Math.max(0, 1 - clusterProgress*TIMING.clusterPullWhileFeatures);
+
+      // People positions
+      // focus targets (only during orchestrated cycle; otherwise no focus)
+      let focusCluster = null;
+      let focusMixBase = 0;
+      if(cycleState.active){
+        focusCluster = cycleState.idx;
+        const targetProgress = (cycleState.phase === "return") ? 0 : 1;
+        cycleState.progress = clamp(cycleState.progress + (targetProgress - cycleState.progress)*0.12, 0, 1);
+        focusMixBase = cycleState.progress;
+      } else {
+        cycleState.progress = 0;
+      }
+
+      let focusGroupMaxToCenter = 0;
+      let focusGroupMaxToOrigin = 0;
+      const focusPoint = {x:50, y:65};
+      const clusterOffsets = personaTargets.map((t,i)=>{
+        if(focusCluster !== null && i === focusCluster){
+          return {
+            x: (focusPoint.x - t.x) * focusMixBase,
+            y: (focusPoint.y - t.y) * focusMixBase
+          };
+        }
+        return {x:0, y:0};
+      });
+
+      people.forEach((p, idx)=>{
+        const target = personaTargets[p.cluster];
+        const clusterPull = clamp(clusterProgress - featureActive*TIMING.clusterPullWhileFeatures, 0, 1); // delay movement toward clusters until features settle
+        const mixChaos = 1 - clamp(clusterPull*1.1, 0, 1);
+        const targetX = p.baseX*mixChaos + (target.x + p.jitter.x)*(1-mixChaos);
+        const targetY = p.baseY*mixChaos + (target.y + p.jitter.y)*(1-mixChaos);
+        const isFocusCluster = focusCluster !== null && p.cluster === focusCluster;
+        const offset = clusterOffsets[p.cluster];
+        const focusX = targetX + offset.x;
+        const focusY = targetY + offset.y;
+        const smooth = 0.14; // motion smoothing factor (keeps timing but reduces jerk)
+        p.posX = p.posX ?? focusX;
+        p.posY = p.posY ?? focusY;
+        p.posX += (focusX - p.posX) * smooth;
+        p.posY += (focusY - p.posY) * smooth;
+        const wiggleBase = Math.sin(performance.now()/1000 + p.wobble + idx*0.3)*1.5;
+        const wiggle = wiggleBase * (personaActive>0 ? 0.2 : 1);
+        p.el.style.left = `${p.posX + wiggle*0.3}%`;
+        p.el.style.top = `${p.posY + wiggle*0.2}%`;
+        let scale = p.size*(1+0.05*Math.sin(performance.now()/900 + idx)*(personaActive>0 ? 0.2 : 1));
+        const groupScale = isFocusCluster ? 1 + 0.56*focusMixBase : 1;
+        scale *= groupScale;
+        p.el.style.transform = `translate(-50%, -50%) scale(${scale})`;
+        const brighten = isFocusCluster ? ((cycleState.active && cycleState.phase === "return") ? 0 : 1) : 0;
+        const fadeOthers = focusCluster !== null && p.cluster !== focusCluster;
+        const fadeAmount = cycleActive ? 0.15 : 0.25;
+        p.el.style.opacity = fadeOthers ? fadeAmount : (brighten ? 1 : (clusterProgress>0.3 ? 0.55 : 0.85));
+        // outline for better overlap separation during cycle (keep very narrow)
+        const outlineW = (cycleState.active && isFocusCluster) ? `${0.6*focusMixBase}px` : "0px";
+        p.el.style.setProperty("--outline-w", outlineW);
+        p.el.style.setProperty("--outline-color", "rgba(255,255,255,0.35)");
+        if(isFocusCluster){
+          const distCenter = Math.hypot(p.posX - focusPoint.x, p.posY - focusPoint.y);
+          const distOrigin = Math.hypot(p.posX - targetX, p.posY - targetY);
+          focusGroupMaxToCenter = Math.max(focusGroupMaxToCenter, distCenter);
+          focusGroupMaxToOrigin = Math.max(focusGroupMaxToOrigin, distOrigin);
+        }
+        // limbs/shadows appear once signals/PCA are underway (tune these thresholds)
+        const detailStart = (TIMING.silhouetteDetailCollectStartPct || 0) / 100;
+        const detailEnd = (TIMING.silhouetteDetailCollectEndPct || 100) / 100;
+        const detailMix = clamp((totalProg - detailStart) / Math.max(0.001, (detailEnd - detailStart)), 0, 1);
+        const showDetail = detailMix > 0.02;
+        p.el.style.setProperty("--sil-o", detailMix);
+        p.el.classList.toggle("dot-only", detailMix < 0.02);
+        p.el.querySelectorAll(".limb, .shadow").forEach(el=>{
+          el.style.opacity = (fadeOthers ? 0.1 : 0.8) * detailMix;
+        });
+        if(p.dog){
+          p.dog.style.opacity = (fadeOthers ? 0.2 : 0.9) * detailMix;
+        }
+        if(p.note){
+          p.note.style.opacity = (fadeOthers ? 0.2 : 0.9) * detailMix;
+        }
+        if(p.shovel){
+          p.shovel.style.opacity = (fadeOthers ? 0.2 : 0.9) * detailMix;
+        }
+        if(p.dot){
+          const baseDot = fadeOthers ? 0.4 : 0.95;
+          p.dot.style.opacity = (1 - detailMix) * baseDot;
+        }
+      });
+
+      // FX drawing
+      ctx.clearRect(0,0,fxCanvas.width, fxCanvas.height);
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+
+      // Feature particles flying upward in PCA section (converge to 6 molecules and hold)
+      const moleculeNodes = Array.from({length:moleculeCount}, (_,i)=>({
+        x: fxCanvas.width * (0.15 + i*(0.14)),
+        y: fxCanvas.height * 0.75   // lower/higher molecule row
+      }));
+      if(featureActive > 0.05){
+        features.forEach((f, i)=>{
+          const person = people[i % people.length];
+          if(!f.alive){
+            f.sx = (parseFloat(person.el.style.left) / 100) * fxCanvas.width;
+            f.sy = (parseFloat(person.el.style.top) / 100) * fxCanvas.height;
+            f.t = 0;
+            f.alive = true;
+          }
+          const node = moleculeNodes[f.targetIndex];
+          f.t = Math.min(1, f.t + 0.02 * featureActive);
+          f.x = f.sx + (node.x - f.sx) * f.t;
+          f.y = f.sy + (node.y - f.sy) * f.t;
+          // molecules should fade out as clustering progresses
+          const molFade = 1 - clusterProgress; // 1 -> visible before clusters, 0 -> hidden when clusters fully active
+          ctx.fillStyle = `rgba(127,226,255,${0.8*featureActive*molFade})`;
+          ctx.beginPath();
+          ctx.arc(f.x, f.y, 3, 0, Math.PI*2);
+          ctx.fill();
+        });
+
+        // draw molecule nodes: only appear when particles actually reach/near the node
+        for(let i=0;i<moleculeCount;i++){
+          const n = moleculeNodes[i];
+          // compute an arrival-driven convergence metric using per-feature distance and t
+          let sumConv = 0, countConv = 0;
+          const maxDist = 120; // px: distance at which particles don't influence the clump
+          for(let fi=0; fi<features.length; fi++){
+            const f = features[fi];
+            if(f.targetIndex !== i || !f.alive) continue;
+            const dx = f.x - n.x;
+            const dy = f.y - n.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            const proximity = clamp(1 - dist / maxDist, 0, 1); // 0..1 based on distance
+            // combine proximity and per-feature t (how far along the path it is)
+            const conv = proximity * f.t;
+            sumConv += conv;
+            countConv++;
+          }
+          const avgConv = countConv > 0 ? (sumConv / countConv) : 0;
+          // node visibility driven by actual arrival (avgConv) and the global featureActive
+          const nodeFade = clamp(avgConv * featureActive * 1.2, 0, 1);
+          const molFade = 1 - clusterProgress; // still fade out as clustering takes over
+          const nodeAlpha = nodeFade * molFade;
+          if(nodeAlpha <= 0.01) continue; // skip drawing when effectively invisible
+
+          const glowMeta = moleculeGlows[i % moleculeGlows.length];
+
+          // draw a soft central glow that grows as particles arrive with metallic core
+          const orbRadius = 10 + 22 * nodeAlpha;
+          const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, orbRadius);
+          grad.addColorStop(0, "#f4f6fa");
+          grad.addColorStop(0.35, "#a7b2c2");
+          grad.addColorStop(1, glowMeta.glowSoft);
+          ctx.save();
+          ctx.globalAlpha = clamp(0.6 + nodeAlpha * 0.4, 0, 1);
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, orbRadius, 0, Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+
+          // moving specular spot to suggest an external light reflecting off a spinning orb
+          const spin = (now/850 + i) % (Math.PI*2);
+          const hx = n.x + Math.cos(spin) * orbRadius * 0.65;
+          const hy = n.y + Math.sin(spin) * orbRadius * 0.35;
+          ctx.save();
+          ctx.translate(hx, hy);
+          ctx.rotate(spin);
+          ctx.scale(1.4, 0.9);
+          const spotGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, orbRadius*0.35);
+          spotGrad.addColorStop(0, "rgba(255,255,255,0.7)");
+          spotGrad.addColorStop(0.4, "rgba(255,255,255,0.3)");
+          spotGrad.addColorStop(1, "rgba(255,255,255,0)");
+          ctx.fillStyle = spotGrad;
+          ctx.globalAlpha = clamp(0.35 + nodeAlpha*0.65, 0, 1);
+          ctx.beginPath();
+          ctx.arc(0, 0, orbRadius*0.35, 0, Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+
+          // pulsing concentric circles to emphasize "signals"
+          const pulse = (Math.sin(now/650 + i) + 1) / 2; // 0..1
+          const ringCount = 3;
+          for(let r=1; r<=ringCount; r++){
+            const ringAlpha = nodeAlpha * (0.55/(r));
+            const ringRadius = 16 + r*16 + pulse*10;
+            ctx.save();
+            ctx.globalAlpha = ringAlpha;
+            ctx.strokeStyle = glowMeta.glowSolid;
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, ringRadius, 0, Math.PI*2);
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          // draw an outer glow halo
+          ctx.save();
+          ctx.globalAlpha = clamp(0.25 + nodeAlpha * 0.5, 0, 0.85);
+          ctx.fillStyle = glowMeta.glowSolid;
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, 8 + 18 * nodeAlpha, 0, Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+        }
+        // redraw feature particles on top of the glow so flying particles remain visible
+        const _molFade = 1 - clusterProgress;
+        features.forEach(f=>{
+          if(!f.alive) return;
+          ctx.beginPath();
+          ctx.fillStyle = `rgba(127,226,255,${Math.min(1, 0.95 * featureActive * _molFade)})`;
+          ctx.arc(f.x, f.y, 3, 0, Math.PI*2);
+          ctx.fill();
+        });
+      } else {
+        features.forEach(f=> f.alive = false);
+      }
+
+      // Cluster centroids & lines only in clustering/message sections
+      const centroidPixels = personaTargets.map(c=>({x: c.x/100*fxCanvas.width, y: c.y/100*fxCanvas.height}));
+      let activeFocus = null;
+      let activeCentroid = null;
+      const prevComposite = ctx.globalCompositeOperation;
+      // cluster visuals start only after `clusterVisualStart` progress is reached
+      if(clusterProgress > 0){
+        ctx.globalCompositeOperation = "source-over"; // draw cluster visuals and chips opaquely
+        const activeCluster = focusCluster ?? Math.floor(clamp(messagePhase,0,0.999)*4);
+        const focusMix = focusCluster !== null ? focusMixBase : (messageActive ? ramp(TIMING.focusZoomStartPct, TIMING.focusZoomEndPct, totalProg) : 0);
+        const clusterPull = Math.max(0, clusterProgress - featureActive*0.8);
+        people.forEach((p, idx)=>{
+          const cp = centroidPixels[p.cluster];
+          const cx = (focusCluster !== null && p.cluster===activeCluster) ? cp.x + (fxCanvas.width*0.5 - cp.x)*(focusMixBase) : cp.x;
+          const cy = (focusCluster !== null && p.cluster===activeCluster) ? cp.y + (fxCanvas.height*0.62 - cp.y)*(focusMixBase) : cp.y;
+          const px = parseFloat(p.el.style.left)/100*fxCanvas.width;
+          const py = parseFloat(p.el.style.top)/100*fxCanvas.height;
+          if(clusterPull>0.15){
+            const fadeOthers = focusCluster !== null && p.cluster !== activeCluster;
+            const groupFade = fadeOthers ? (cycleState.active ? 0.15 : 0.35) : 1;
+            ctx.strokeStyle = `rgba(170,215,255,${0.55*clusterPull*groupFade})`;
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(cx, cy);
+            ctx.stroke();
+          }
+        });
+        centroidPixels.forEach((c, i)=>{
+          const bright = (focusCluster !== null && i===activeCluster) ? 1 : 0;
+          const clusterFocusMix = (focusCluster !== null && i===activeCluster) ? focusMixBase : 0;
+          const clusterScale = 1 + 0.56*clusterFocusMix;
+          const focusCx = c.x + (fxCanvas.width*0.5 - c.x)*clusterFocusMix;
+          const focusCy = c.y + (fxCanvas.height*0.62 - c.y)*clusterFocusMix;
+          if(bright){
+            activeCentroid = c;
+            activeFocus = {x: focusCx, y: focusCy, mix: clusterFocusMix};
+          }
+          // centroids fade in as clustering ramps up
+          const centroidFade = clamp(clusterProgress, 0, 1);
+          const fadeOthers = focusCluster !== null && i!==activeCluster;
+          const fadeAmount = cycleState.active ? 0.15 : 0.35;
+          const groupFade = fadeOthers ? fadeAmount : 1;
+          const centroidVisibility = cycleState.active ? 0 : 1; // hide centroid through the cycle phases
+          let alpha = (bright ? centroidFade : (0.55 * centroidFade)) * groupFade * centroidVisibility;
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = bright ? centroidColors[i] : "rgba(140,200,255,1)";
+          ctx.shadowColor = bright ? centroidColors[i] : "rgba(120,180,255,0.6)";
+          ctx.shadowBlur = bright ? 24 : 12;
+          ctx.beginPath();
+          ctx.arc(focusCx, focusCy, (bright ? 20 : 14) * clusterScale, 0, Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+
+          // Draw cluster icons once overall scroll crosses the absolute start thresholds
+          // persona chips removed
+        });
+      }
+      ctx.globalCompositeOperation = prevComposite;
+
+      // Spotlights during cluster focus cycle
+      if(cycleState.active && focusCluster !== null && activeFocus){
+        const beamAlpha = clamp(0.2 + focusMixBase*0.9, 0, 1); // base visibility + grows with focus
+        const baseY = fxCanvas.height + 80;
+        const clusterSpan = Math.max(110, fxCanvas.width * 0.16); // span to roam across the whole cluster footprint
+        spotlights.forEach((sp, idx)=>{
+          const roam = Math.sin((now/900)*sp.speedX + sp.phaseX + idx*0.6)*40;
+          const x0 = fxCanvas.width * ((idx+1)/(spotlights.length+1)) + sp.baseOffset;
+          const y0 = baseY;
+          const targetX = activeFocus.x + Math.sin((now/1000)*sp.speedX + sp.phaseX) * (clusterSpan*0.5);
+          const targetY = activeFocus.y + Math.sin((now/1200)*sp.speedY + sp.phaseY) * 24;
+          const dx = targetX - x0;
+          const dy = targetY - y0;
+          const len = Math.max(120, Math.hypot(dx, dy));
+          const angle = Math.atan2(dy, dx);
+          const beamWidthTop = 110;
+          const beamWidthBottom = 26;
+          ctx.save();
+          ctx.translate(x0, y0);
+          ctx.rotate(angle + Math.PI/2); // align beam axis to target direction (beam points "up" in local space)
+          const grad = ctx.createLinearGradient(0, 0, 0, -len);
+          grad.addColorStop(0, "rgba(0,0,0,0)");
+          grad.addColorStop(0.15, `rgba(140,200,255,${0.22*beamAlpha})`);
+          grad.addColorStop(0.5, `rgba(180,230,255,${0.32*beamAlpha})`);
+          grad.addColorStop(1, "rgba(200,240,255,0)");
+          ctx.fillStyle = grad;
+          ctx.globalCompositeOperation = "screen";
+          ctx.beginPath();
+          ctx.moveTo(-beamWidthBottom/2, 0);
+          ctx.lineTo(-beamWidthTop/2, -len);
+          ctx.lineTo(beamWidthTop/2, -len);
+          ctx.lineTo(beamWidthBottom/2, 0);
+          ctx.closePath();
+          ctx.fill();
+          // ellipse at the top of the beam to simulate a stage spotlight head
+          ctx.save();
+          const tipYOffset = beamWidthTop * 0.08; // nudge ellipse down slightly into the beam to avoid a gap
+          ctx.translate(0, -len + tipYOffset);
+          const tipScale = beamWidthTop / 36; // 18px radius -> 36px diameter -> match beamWidthTop
+          ctx.scale(tipScale, tipScale*0.55);
+          const tipGrad = ctx.createRadialGradient(0,0,2, 0,0,18);
+          tipGrad.addColorStop(0, `rgba(200,240,255,${0.45*beamAlpha})`);
+          tipGrad.addColorStop(1, "rgba(200,240,255,0)");
+          ctx.fillStyle = tipGrad;
+          ctx.beginPath();
+          ctx.arc(0, 0, 18, 0, Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+          ctx.restore();
+        });
+      }
+
+      // Envelopes flying to active cluster in messaging section
+      const envelopeCluster = focusCluster ?? null;
+      if(envelopeCluster === null || (!cycleState.active && !messageActive)) {
+        envelopes.length = 0;
+      }
+      if(totalProg > (TIMING.envelopeFlightStartPct/100) && totalProg <= (TIMING.envelopeFlightEndPct/100) && envelopeCluster !== null){
+        const targetPoint = ()=>{
+          const candidates = people.filter(p=>p.cluster === envelopeCluster && p.el && p.el.style.left);
+          if(candidates.length){
+            const person = choose(candidates);
+            const px = parseFloat(person.el.style.left)/100 * fxCanvas.width;
+            const py = parseFloat(person.el.style.top)/100 * fxCanvas.height;
+            return {x:px, y:py};
+          }
+          const envCentroid = centroidPixels[envelopeCluster];
+          const envFocusMix = focusMixBase;
+          return {
+            x: envCentroid.x + (fxCanvas.width*0.5 - envCentroid.x)*envFocusMix,
+            y: envCentroid.y + (fxCanvas.height*0.62 - envCentroid.y)*envFocusMix
+          };
+        };
+        if(cycleState.active){
+          if(cycleState.phase === "send" && !cycleState.mailSent && focusMixBase > 0.95){
+            const burst = 10;
+            for(let b=0;b<burst;b++){
+              const envTarget = targetPoint();
+              envelopes.push({
+                x: Math.random()<0.5 ? -30 : fxCanvas.width+30,
+                y: rand(120, fxCanvas.height-60),
+                target: envTarget,
+                life: 0,
+                ttl: rand(84, 144),
+                angle: Math.random()*Math.PI*2
+              });
+            }
+            cycleState.mailSent = true;
+          }
+        } else if(messageActive){
+          if(envelopes.length < 14){
+            const envTarget = targetPoint();
+            envelopes.push({
+              x: Math.random()<0.5 ? -30 : fxCanvas.width+30,
+              y: rand(120, fxCanvas.height-60),
+              target: envTarget,
+              life: 0,
+              ttl: rand(144, 240),
+              angle: Math.random()*Math.PI*2
+            });
+          }
+        }
+      }
+
+      let allMailArrived = envelopes.length === 0 ? true : false;
+      for(let i=envelopes.length-1;i>=0;i--){
+        const e = envelopes[i];
+        e.life++;
+        const t = clamp(e.life / e.ttl, 0, 1);
+        const px = e.x + (e.target.x - e.x)*t;
+        const py = e.y + (e.target.y - e.y)*t + Math.sin(t*Math.PI)*12;
+        const alpha = 1; // stay opaque until arrival
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(e.angle*0.2);
+        ctx.fillStyle = `rgba(255,255,255,${0.7*alpha})`;
+        ctx.fillRect(-16,-12,32,24);
+        ctx.strokeStyle = `rgba(120,190,255,${alpha})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(-14,-10); ctx.lineTo(0,2); ctx.lineTo(14,-10);
+        ctx.stroke();
+        ctx.restore();
+        if(t>=1) envelopes.splice(i,1);
+        else allMailArrived = false;
+      }
+
+      // serial cluster focus orchestration
+      if(cycleState.active){
+        const clusterCentered = focusMixBase > 0.96;
+        const clusterAtOrigin = focusMixBase < 0.04;
+        if(cycleState.phase === "center" && clusterCentered){
+          cycleState.phase = "send";
+          cycleState.mailSent = false;
+        } else if(cycleState.phase === "send" && cycleState.mailSent && allMailArrived){
+          cycleState.phase = "return";
+        } else if(cycleState.phase === "return" && clusterAtOrigin && allMailArrived){
+          cycleState.idx = (cycleState.idx + 1) % 4;
+          cycleState.phase = "center";
+          cycleState.mailSent = false;
+        }
+      }
+
+      ctx.restore();
+    }
+    animate();
+  </script>
+</body>
+</html>

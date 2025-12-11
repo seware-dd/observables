@@ -1,0 +1,1503 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>3D K-means Demo</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, #0d1a24 0%, #04070d 45%, #04070c 100%);
+      color: #dfe9f5;
+      margin: 0;
+      padding: 24px;
+    }
+    .shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      background: linear-gradient(135deg, rgba(30,52,74,0.65), rgba(16,26,38,0.82));
+      border: 1px solid rgba(255,255,255,0.07);
+      box-shadow: 0 30px 80px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.07);
+      border-radius: 16px;
+      padding: 18px 18px 10px 18px;
+      backdrop-filter: blur(10px);
+    }
+    .panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px 12px 6px 12px;
+    }
+    .topline{
+      display:flex;
+      flex-wrap:wrap;
+      justify-content: space-between;
+      gap:14px;
+      align-items:center;
+    }
+    .titles .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 11px;
+      color: #6cbaff;
+    }
+    .titles .headline {
+      font-weight: 700;
+      font-size: 24px;
+      color: #e9f3ff;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      flex: 1;
+      min-width: 300px;
+    }
+    .metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 8px 12px;
+      border-radius: 12px;
+    }
+    .metric{
+      display:flex;
+      gap:6px;
+      align-items: baseline;
+      font-size:13px;
+      color:#d9e8f7;
+    }
+    .metric span {
+      font-size: 12px;
+      color: #b7c6d8;
+    }
+    .metric strong {
+      font-size: 16px;
+      color: #ffffff;
+    }
+    input[type=range] {
+      width: 100%;
+      accent-color: #5ad1ff;
+    }
+    label { font-size: 12px; color: #9eb5c9; display: block; }
+    .btn-row {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .btn {
+      border: 1px solid rgba(255,255,255,0.07);
+      background: rgba(255,255,255,0.05);
+      color: #e8f2ff;
+      padding: 8px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      transition: all 0.12s ease;
+    }
+    .btn:hover { border-color: rgba(90,209,255,0.8); box-shadow: 0 0 0 1px rgba(90,209,255,0.3); }
+    .btn.primary { background: linear-gradient(120deg, #2f8bff, #1ddbe0); border-color: transparent; color: #0a1320; }
+    .btn.primary:hover { box-shadow: 0 10px 30px rgba(37,139,255,0.3); }
+    .btn:active { transform: translateY(1px); }
+    .btn.ghost { background: rgba(255,255,255,0.04); }
+    .viewport {
+      width: 100%;
+      height: 720px;
+      position: relative;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: radial-gradient(circle at 30% 30%, rgba(120,170,230,0.14), rgba(0,0,0,0));
+      overflow: hidden;
+    }
+    .axes-overlay{
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      width: 180px;
+      height: 180px;
+      pointer-events: none;
+    }
+    canvas { display: block; }
+    .hint {
+      text-align: center;
+      color: #8fb2cc;
+      font-size: 13px;
+      margin: 10px 0 4px;
+      letter-spacing: 0.02em;
+    }
+    @media (max-width: 720px){
+      .panel { flex-direction: column; align-items: flex-start; }
+      .viewport { height: 420px; }
+    }
+  </style>  
+
+</head>
+<body>
+  <div id="app"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.181.2/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.181.2/examples/jsm/"
+  }
+}
+</script>
+
+<script type ="module">
+
+			import * as THREE from 'three';
+
+      import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
+      import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+      import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+      import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+      import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+
+
+
+    function showError(message){
+      console.error(message);
+      const note = document.createElement("div");
+      note.style.padding = "12px 14px";
+      note.style.margin = "16px";
+      note.style.borderRadius = "10px";
+      note.style.border = "1px solid rgba(255,255,255,0.15)";
+      note.style.background = "rgba(30,10,10,0.45)";
+      note.style.color = "#ffb7b7";
+      note.style.fontFamily = "ui-monospace, SFMono-Regular, Consolas, monospace";
+      note.textContent = "3D demo failed to load: " + message;
+      document.body.innerHTML = "";
+      document.body.appendChild(note);
+    }
+    window.addEventListener("error", (e)=> showError(e.message || "unknown error"));
+    window.addEventListener("unhandledrejection", (e)=> showError(e.reason || "promise rejection"));
+
+    // Small helpers to mimic Observable Inputs without the runtime
+    const makeSlider = (min, max, value, step, label) => {
+      const wrap = document.createElement("div");
+      const lab = document.createElement("label");
+      lab.textContent = label;
+      const input = document.createElement("input");
+      input.type = "range";
+      input.min = min;
+      input.max = max;
+      input.step = step;
+      input.value = value;
+      wrap.append(lab, input);
+      return {node: wrap, input};
+    };
+
+    const palette = [
+      "#66c2ff","#ff8a4d","#9ae66e","#f04d98","#c592ff",
+      "#4de0c4","#ffce5c","#82b0ff","#ff7f7f","#5be37f",
+      "#f5a3ff","#7cf5e3"
+    ];
+
+    // Layout
+    const app = document.getElementById("app");
+    const shell = document.createElement("div");
+    shell.className = "shell";
+    shell.innerHTML = `
+      <div class="panel">
+        <div class="topline">
+          <div class="titles">
+            <div class="eyebrow">Impact Summit Cluster Demo</div>
+            <div class="headline">Interactive 3D K-Means</div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><span>Iteration</span><strong id="iterVal">0</strong></div>
+            <div class="metric"><span>SSE</span><strong id="sseVal">--</strong></div>
+            <div class="metric"><span>Status</span><strong id="statusVal">idle</strong></div>
+            <div class="metric"><span>Points</span><strong id="pointsVal">0</strong></div>
+            <div class="metric"><span>Clusters</span><strong id="clustersVal">0</strong></div>
+          </div>
+        </div>
+        <div class="controls"></div>
+      </div>
+      <div class="viewport" id="viewport"></div>
+      <div class="hint">Drag to rotate | Scroll to zoom | Double-click to focus</div>
+    `;
+    app.appendChild(shell);
+
+    // Controls
+    const controls = shell.querySelector(".controls");
+    const kSlider = makeSlider(1, 12, 6, 1, "Clusters (k)");
+    const nSlider = makeSlider(100, 10000, 5000, 50, "Points");
+    const spreadSlider = makeSlider(0.08, 0.45, 0.45, 0.01, "Cluster spread");
+    const centroidOpacitySlider = makeSlider(0, 1, 1, 0.05, "Centroid opacity");
+    const pointOpacitySlider = makeSlider(0, 1, 0.55, 0.05, "Points + lines opacity");
+    const btnRow = document.createElement("div");
+    btnRow.className = "btn-row";
+    const stepBtn = document.createElement("button");
+    stepBtn.className = "btn ghost";
+    stepBtn.textContent = "Step";
+    const runBtn = document.createElement("button");
+    runBtn.className = "btn primary";
+    runBtn.textContent = "Run";
+    const resetBtn = document.createElement("button");
+    resetBtn.className = "btn ghost";
+    resetBtn.textContent = "Reset";
+    const randomBtn = document.createElement("button");
+    randomBtn.className = "btn ghost";
+    randomBtn.textContent = "Randomize points";
+    const axesBtn = document.createElement("button");
+    axesBtn.className = "btn ghost";
+    axesBtn.textContent = "Hide axes";
+    const cloudBtn = document.createElement("button");
+    cloudBtn.className = "btn ghost";
+    cloudBtn.textContent = "Show Cloud";
+    btnRow.append(stepBtn, runBtn, resetBtn, randomBtn, axesBtn, cloudBtn);
+    controls.append(kSlider.node, nSlider.node, spreadSlider.node, centroidOpacitySlider.node, pointOpacitySlider.node, btnRow);
+
+    // State
+    let points = [];
+    let centroids = [];
+    let assignments = [];
+    let iteration = 0;
+    let centroidOpacity = +centroidOpacitySlider.input.value;
+    let pointOpacity = +pointOpacitySlider.input.value;
+    let running = null;
+    let activeCentroid = null; // selected centroid index or null
+    let axesVisible = true;
+    let axesScene = null;
+    let axesCam = null;
+    let axesGroup = null;
+    let axesRenderer = null;
+    let focusedPoint = null;
+    let focusedPointKey = null;
+    const globeInstances = new Map();
+    let snowAssetsPromise = null;
+    let snowmanModel = null;
+    let treeModel = null;
+    let snowmanBounds = null;
+    let treeBounds = null;
+    let snowPointTexture = null;
+    const snowConfig = {
+      globeRadius: 36,
+      snowCount: 260,
+      renderDistance: 460,
+      spawnDistance: 520
+    };
+    let labelFontPromise = null;
+    let labelFont = null;
+    const labelCounts = {nice: 0, naughty: 0};
+    let updatingGlobes = false;
+
+    const iterVal = shell.querySelector("#iterVal");
+    const sseVal = shell.querySelector("#sseVal");
+    const statusVal = shell.querySelector("#statusVal");
+    const pointsVal = shell.querySelector("#pointsVal");
+    const clustersVal = shell.querySelector("#clustersVal");
+
+    // Data generation
+    function makePoints(n, k, spread){
+      const centers = [];
+      const radius = 260;
+      const box = radius * 1.6;
+      const halfBox = box / 2;
+      for(let i=0;i<k;i++){
+        centers.push([
+          Math.random() * box - halfBox,
+          Math.random() * box - halfBox,
+          Math.random() * box - halfBox
+        ]);
+      }
+      const sigma = Math.max(20, spread * radius);
+      return Array.from({length:n}, () => {
+        const c = centers[Math.floor(Math.random()*centers.length)];
+        const dx = randn()*sigma;
+        const dy = randn()*sigma;
+        const dz = randn()*sigma*0.8;
+        return {
+          x: c[0]+dx,
+          y: c[1]+dy,
+          z: c[2]+dz
+        };
+      });
+    }
+
+    function randBetween(min, max){
+      return min + Math.random() * (max - min);
+    }
+
+
+    function randn(){
+      let u = 0, v = 0;
+      while(u === 0) u = Math.random();
+      while(v === 0) v = Math.random();
+      return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
+
+    function randPointInSphere(radius){
+      const v = new THREE.Vector3();
+      do {
+        v.set(
+          randBetween(-1, 1),
+          randBetween(-1, 1),
+          randBetween(-1, 1)
+        );
+      } while(v.lengthSq() > 1);
+      return v.multiplyScalar(radius);
+    }
+
+    function computeBounds(obj){
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      return {box, size, min: box.min.clone(), max: box.max.clone()};
+    }
+
+    function fitModelToHeight(model, bounds, targetHeight){
+      if(!bounds || !targetHeight) return {lift:0, scale:1};
+      const scale = targetHeight / Math.max(bounds.size.y, 1e-4);
+      model.scale.setScalar(scale);
+      const lift = -bounds.min.y * scale;
+      return {lift, scale};
+    }
+
+    function tintTreeMaterialsToGreen(obj){
+      const green = new THREE.Color(0x2e8b57);
+      obj.traverse(node=>{
+        if(node.isMesh){
+          const applyColor = (mat)=>{
+            if(mat && mat.color){
+              mat = mat.clone();
+              mat.color.copy(green);
+              if(mat.emissive) mat.emissive.set(0x0a1d12);
+              node.material = mat;
+            }
+          };
+          if(Array.isArray(node.material)){
+            node.material = node.material.map(m=>{
+              const clone = m.clone();
+              if(clone.color) clone.color.copy(green);
+              if(clone.emissive) clone.emissive.set(0x0a1d12);
+              return clone;
+            });
+          }else{
+            applyColor(node.material);
+          }
+        }
+      });
+    }
+
+    // K-means helpers
+    function init(k){
+      if(points.length === 0){
+        points = makePoints(+nSlider.input.value, k, +spreadSlider.input.value);
+        clearFocusedPoint();
+      }
+      let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+      for(const p of points){
+        if(p.x<minX) minX=p.x; if(p.x>maxX) maxX=p.x;
+        if(p.y<minY) minY=p.y; if(p.y>maxY) maxY=p.y;
+        if(p.z<minZ) minZ=p.z; if(p.z>maxZ) maxZ=p.z;
+      }
+      const span = Math.max(maxX-minX, maxY-minY, maxZ-minZ, 80);
+      const pad = span * 0.35;
+      centroids = Array.from({length:k}, ()=>({
+        x: randBetween(minX - pad, maxX + pad),
+        y: randBetween(minY - pad, maxY + pad),
+        z: randBetween(minZ - pad, maxZ + pad)
+      }));
+      assignments = new Array(points.length).fill(-1);
+      iteration = 0;
+      updateLabels("ready");
+      update3D();
+    }
+
+    function assign(){
+      let changed = false;
+      for(let i=0;i<points.length;i++){
+        let best = -1, bestDist = Infinity;
+        for(let j=0;j<centroids.length;j++){
+          const dx = points[i].x - centroids[j].x;
+          const dy = points[i].y - centroids[j].y;
+          const dz = points[i].z - centroids[j].z;
+          const d2 = dx*dx + dy*dy + dz*dz;
+          if(d2 < bestDist){
+            bestDist = d2;
+            best = j;
+          }
+        }
+        if(assignments[i] !== best){
+          assignments[i] = best;
+          changed = true;
+        }
+      }
+      return changed;
+    }
+
+    function updateCentroids(){
+      const sums = centroids.map(()=>({x:0,y:0,z:0,count:0}));
+      for(let i=0;i<points.length;i++){
+        const a = assignments[i];
+        if(a>=0){
+          sums[a].x += points[i].x;
+          sums[a].y += points[i].y;
+          sums[a].z += points[i].z;
+          sums[a].count += 1;
+        }
+      }
+      let moved = false;
+      for(let j=0;j<centroids.length;j++){
+        if(sums[j].count > 0){
+          const nx = sums[j].x / sums[j].count;
+          const ny = sums[j].y / sums[j].count;
+          const nz = sums[j].z / sums[j].count;
+          const delta = Math.hypot(nx-centroids[j].x, ny-centroids[j].y, nz-centroids[j].z);
+          centroids[j].x = nx; centroids[j].y = ny; centroids[j].z = nz;
+          if(delta > 1e-4) moved = true;
+        }
+      }
+      return moved;
+    }
+
+    function sse(){
+      let total = 0;
+      for(let i=0;i<points.length;i++){
+        const a = assignments[i];
+        if(a>=0){
+          const dx = points[i].x - centroids[a].x;
+          const dy = points[i].y - centroids[a].y;
+          const dz = points[i].z - centroids[a].z;
+          total += dx*dx + dy*dy + dz*dz;
+        }
+      }
+      return total;
+    }
+
+    function step(){
+      if(centroids.length === 0) return;
+      const changed = assign();
+      const moved = updateCentroids();
+      iteration += 1;
+      updateLabels(changed || moved ? "iterating" : "converged");
+      update3D();
+      if(!changed && !moved) stop();
+      return changed || moved;
+    }
+
+    function run(){
+      stop();
+      running = setInterval(()=> step(), 220);
+      updateLabels("running");
+    }
+    function stop(){
+      if(running){ clearInterval(running); running = null; }
+    }
+    function clearFocusedPoint(){
+      focusedPoint = null;
+      focusedPointKey = null;
+    }
+    function reset(){
+      stop();
+      points = [];
+      centroids = [];
+      assignments = [];
+      iteration = 0;
+      activeCentroid = null;
+      clearFocusedPoint();
+      disposeAllGlobes();
+      updateLabels("idle");
+      update3D();
+    }
+
+    function updateLabels(state){
+      iterVal.textContent = iteration.toString();
+      sseVal.textContent = centroids.length ? sse().toFixed(1) : "--";
+      statusVal.textContent = state;
+      pointsVal.textContent = points.length.toString();
+      clustersVal.textContent = centroids.length.toString();
+    }
+
+    // UI wiring
+    stepBtn.onclick = ()=>{ if(!centroids.length) init(+kSlider.input.value); step(); };
+    runBtn.onclick = ()=>{
+      if(running){ stop(); runBtn.textContent = "Run"; statusVal.textContent = "paused"; }
+      else { if(!centroids.length) init(+kSlider.input.value); run(); runBtn.textContent = "Pause"; }
+    };
+    resetBtn.onclick = ()=>{ reset(); runBtn.textContent = "Run"; };
+    randomBtn.onclick = ()=>{
+      stop();
+      points = makePoints(+nSlider.input.value, +kSlider.input.value, +spreadSlider.input.value);
+      centroids = [];
+      assignments = [];
+      iteration = 0;
+      clearFocusedPoint();
+      disposeAllGlobes();
+      updateLabels("new sample");
+      update3D();
+      runBtn.textContent = "Run";
+    };
+
+    function updateCountsFromSliders(){
+      clustersVal.textContent = kSlider.input.value;
+      pointsVal.textContent = nSlider.input.value;
+    }
+
+    kSlider.input.oninput = ()=>{ updateCountsFromSliders(); if(centroids.length) init(+kSlider.input.value); };
+    nSlider.input.oninput = ()=>{ updateCountsFromSliders(); };
+    centroidOpacitySlider.input.oninput = ()=>{ centroidOpacity = +centroidOpacitySlider.input.value; update3D(); };
+    pointOpacitySlider.input.oninput = ()=>{ pointOpacity = +pointOpacitySlider.input.value; update3D(); };
+
+    // 3D scene setup
+    const viewport = shell.querySelector("#viewport");
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x12243a);
+    scene.fog = new THREE.FogExp2(0x12243a, 0.00045);
+
+    const camera = new THREE.PerspectiveCamera(48, 16/9, 1, 5000);
+    camera.position.set(0, 0, 900);
+
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    viewport.appendChild(renderer.domElement);
+    // Add a lightweight generated environment map so metallic materials have reflections
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = envTexture;
+    pmrem.dispose();
+
+    axesRenderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+    axesRenderer.setPixelRatio(window.devicePixelRatio || 1);
+    axesRenderer.setSize(180, 180);
+    axesRenderer.setClearColor(0x000000, 0);
+    axesRenderer.domElement.className = "axes-overlay";
+    axesRenderer.domElement.style.display = axesVisible ? "block" : "none";
+    viewport.appendChild(axesRenderer.domElement);
+
+    async function loadWithFallback(loader, baseName){
+      try{
+        return await loader.loadAsync(`${baseName}.glb`);
+      }catch(err){
+        console.warn(`${baseName}.glb failed, falling back to .gltf`, err);
+        return loader.loadAsync(`${baseName}.gltf`);
+      }
+    }
+
+    function loadSnowAssets(){
+      if(snowAssetsPromise) return snowAssetsPromise;
+      const loader = new GLTFLoader().setPath("./");
+      snowAssetsPromise = Promise.all([
+        loadWithFallback(loader, "snowman"),
+        loadWithFallback(loader, "tree")
+      ]).then(([snowman, tree])=>{
+        snowmanModel = snowman.scene;
+        snowmanModel.updateMatrixWorld(true);
+        snowmanBounds = computeBounds(snowmanModel);
+        treeModel = tree.scene;
+        treeModel.updateMatrixWorld(true);
+        treeBounds = computeBounds(treeModel);
+        return {snowman: snowmanModel, tree: treeModel};
+      }).catch(err=>{
+        console.error("Failed to load snow assets", err);
+        snowAssetsPromise = null;
+        return null;
+      });
+      return snowAssetsPromise;
+    }
+
+    function disposeGlobeInstance(inst){
+      if(!inst || !inst.group) return;
+      scene.remove(inst.group);
+      inst.group.traverse(obj=>{
+        if(obj.userData && obj.userData.cleanup){
+          const disposeMat = (m)=>{
+            if(!m) return;
+            if(m.map && m.map.dispose) m.map.dispose();
+            if(m.dispose) m.dispose();
+          };
+          if(obj.geometry && obj.geometry.dispose) obj.geometry.dispose();
+          if(obj.material){
+            if(Array.isArray(obj.material)){
+              obj.material.forEach(disposeMat);
+            }else{
+              disposeMat(obj.material);
+            }
+          }
+        }
+      });
+    }
+
+    function disposeAllGlobes(){
+      globeInstances.forEach(inst => disposeGlobeInstance(inst));
+      globeInstances.clear();
+    }
+
+    function makeSnowParticles(radius){
+      const count = snowConfig.snowCount;
+      const positions = new Float32Array(count * 3);
+      const velocities = new Float32Array(count * 3);
+      const swirlRates = new Float32Array(count);
+      const limit = radius * 0.96;
+      for(let i=0;i<count;i++){
+        const p = randPointInSphere(limit * 0.98);
+        positions[i*3] = p.x;
+        positions[i*3+1] = p.y;
+        positions[i*3+2] = p.z;
+        velocities[i*3] = randBetween(-0.22, 0.22);
+        velocities[i*3+1] = -randBetween(0.35, 0.95);
+        velocities[i*3+2] = randBetween(-0.22, 0.22);
+        swirlRates[i] = randBetween(0.16, 0.45) * (Math.random() < 0.2 ? -1 : 1);
+      }
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      const mat = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 1.05,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        sizeAttenuation: true,
+        map: getSnowPointTexture(),
+        alphaTest: 0.2
+      });
+      const mesh = new THREE.Points(geom, mat);
+      mesh.userData.cleanup = true;
+      return {mesh, positions, velocities, swirlRates, geom, radius: limit};
+    }
+
+    function updateSnowParticlesInstance(snowParticles, dt){
+      if(!snowParticles || !snowParticles.mesh) return;
+      const limit = snowParticles.radius;
+      const floor = -limit * 0.95;
+      const ceiling = limit * 0.95;
+      const pos = snowParticles.positions;
+      const vel = snowParticles.velocities;
+      const swirlRates = snowParticles.swirlRates;
+      const step = dt ? dt * 1.4 : 0.04;
+      for(let i=0;i<pos.length;i+=3){
+        const idx = i / 3;
+        pos[i] += vel[i] * step;
+        pos[i+1] += vel[i+1] * step;
+        pos[i+2] += vel[i+2] * step;
+
+        // spiral swirl around Y axis
+        const r = Math.hypot(pos[i], pos[i+2]);
+        if(r > 1e-3){
+          const angle = Math.atan2(pos[i+2], pos[i]) + swirlRates[idx] * step * 0.9;
+          const clampedR = Math.min(r, limit * 0.98);
+          pos[i] = Math.cos(angle) * clampedR;
+          pos[i+2] = Math.sin(angle) * clampedR;
+        }
+
+        const x = pos[i], y = pos[i+1], z = pos[i+2];
+        const lenSq = x*x + y*y + z*z;
+        const outside = lenSq > (limit*limit) || y < floor || y > ceiling;
+        if(outside){
+          const p = randPointInSphere(limit * 0.9);
+          p.y = randBetween(limit * 0.55, ceiling);
+          pos[i] = p.x; pos[i+1] = p.y; pos[i+2] = p.z;
+          vel[i] = randBetween(-0.22, 0.22);
+          vel[i+1] = -randBetween(0.35, 0.95);
+          vel[i+2] = randBetween(-0.22, 0.22);
+          swirlRates[idx] = randBetween(0.16, 0.45) * (Math.random() < 0.2 ? -1 : 1);
+        }
+      }
+      snowParticles.geom.attributes.position.needsUpdate = true;
+    }
+
+    function getSnowPointTexture(){
+      if(snowPointTexture) return snowPointTexture;
+      const size = 32;
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0,0,size,size);
+      const gradient = ctx.createRadialGradient(size/2, size/2, 2, size/2, size/2, size/2);
+      gradient.addColorStop(0, "rgba(255,255,255,1)");
+      gradient.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(size/2, size/2, size/2, 0, Math.PI * 2);
+      ctx.fill();
+      snowPointTexture = new THREE.CanvasTexture(canvas);
+      return snowPointTexture;
+    }
+
+    function loadLabelFont(){
+      if(labelFont || labelFontPromise) return labelFontPromise;
+      const loader = new FontLoader();
+      labelFontPromise = loader.loadAsync("https://cdn.jsdelivr.net/npm/three@0.181.2/examples/fonts/helvetiker_regular.typeface.json")
+        .then(font=>{ labelFont = font; return font; })
+        .catch(err=>{ console.error("Font load failed", err); labelFontPromise = null; return null; });
+      return labelFontPromise;
+    }
+
+    function makeFloatingLabel3D(text, colorHex, facing, radius){
+      if(!labelFont) return null;
+      const targetHeight = radius * 0.34;
+      const depth = targetHeight * 0.2;
+      const geom = new TextGeometry(text, {
+        font: labelFont,
+        size: targetHeight,
+        height: depth,
+        curveSegments: 8,
+        bevelEnabled: false
+      });
+      geom.computeBoundingBox();
+      geom.center();
+      const box = geom.boundingBox;
+      const sizeVec = new THREE.Vector3();
+      box.getSize(sizeVec);
+      const maxDim = Math.max(sizeVec.x, sizeVec.y);
+      const allowed = radius * 0.8;
+      if(maxDim > allowed){
+        const s = allowed / Math.max(maxDim, 1e-4);
+        geom.scale(s, s, s);
+        geom.computeBoundingBox();
+        geom.center();
+        box.copy(geom.boundingBox);
+        box.getSize(sizeVec);
+      }
+      // Enforce depth to about 20% of final height
+      const desiredDepth = sizeVec.y * 0.2;
+      const currentDepth = Math.max(sizeVec.z, 1e-4);
+      const depthScale = desiredDepth / currentDepth;
+      geom.scale(1, 1, depthScale);
+      // Slightly shrink in X/Y only to give more breathing room, leave Z as-is
+      const xyShrink = 0.9;
+      geom.scale(xyShrink, xyShrink, 1);
+      geom.computeBoundingBox();
+      geom.center();
+      const isNaughty = text === "Naughty";
+      const emissiveColor = isNaughty ? 0x5b0f0f : (colorHex === 0x111111 ? 0x222222 : 0x2a1b00);
+      const emissiveIntensity = isNaughty ? 1.05 : (colorHex === 0x111111 ? 0.75 : 0.78);
+      const mat = new THREE.MeshStandardMaterial({
+        color: colorHex,
+        emissive: emissiveColor,
+        emissiveIntensity,
+        metalness: isNaughty ? 0.35 : (colorHex === 0x111111 ? 0.15 : 0.45),
+        roughness: 0.28
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.rotation.y = facing;
+      mesh.position.set(0, radius * 0.78, 0);
+      mesh.userData.cleanup = true;
+      return mesh;
+    }
+
+    function updateSnowGlobeAppearance(glass, distance, visibilityT){
+      if(!glass) return;
+      const mat = glass.material;
+      if(!mat) return;
+      // visibilityT is 0 when far, 1 when inside interior reveal distance
+      const t = THREE.MathUtils.clamp(visibilityT ?? 0, 0, 1);
+      mat.opacity = THREE.MathUtils.lerp(0.05, 0.82, t);
+      mat.emissiveIntensity = THREE.MathUtils.lerp(0.1, 1.3, t);
+      mat.thickness = THREE.MathUtils.lerp(1.5, 5.0, t);
+      mat.needsUpdate = true;
+    }
+
+    function addLabelToGlobe(globe, facing, radius){
+      const bias = labelCounts.nice - labelCounts.naughty;
+      const baseRandom = Math.random();
+      const chooseNice = bias > 2 ? false : (bias < -2 ? true : baseRandom < 0.5);
+      if(chooseNice) labelCounts.nice += 1; else labelCounts.naughty += 1;
+      const text = chooseNice ? "Nice" : "Naughty";
+      const color = chooseNice ? 0xffd166 : 0xff6b6b;
+      const mesh = makeFloatingLabel3D(text, color, facing, radius);
+      if(mesh){
+        mesh.userData.isInterior = true;
+        globe.add(mesh);
+        return mesh;
+      }
+      const promise = loadLabelFont();
+      if(promise){
+        promise.then(()=> {
+          if(!labelFont || !globe.parent) return;
+          const built = makeFloatingLabel3D(text, color, facing, radius);
+          if(built){
+            globe.add(built);
+            built.userData.isInterior = true;
+          }
+        }).catch(()=>{});
+      }
+      return null;
+    }
+
+    function buildSnowGlobe(){
+      if(!snowmanModel || !treeModel) return null;
+      const radius = snowConfig.globeRadius;
+      const group = new THREE.Group();
+      const baseHeight = radius * 0.28;
+      const baseY = -radius * 0.55;
+      const baseTop = baseY + baseHeight * 0.5;
+
+      const glass = new THREE.Mesh(
+        new THREE.SphereGeometry(radius, 28, 26),
+        new THREE.MeshPhysicalMaterial({
+          color: 0xffffff,
+          emissive: 0x14324f,
+          emissiveIntensity: 0.32,
+          transparent: true,
+          opacity: 0.28,
+          roughness: 0.06,
+          metalness: 0.08,
+          transmission: 0.94,
+          thickness: 3.2,
+          envMapIntensity: 1.5,
+          clearcoat: 0.9,
+          clearcoatRoughness: 0.04,
+          depthWrite: false
+        })
+      );
+      glass.userData.cleanup = true;
+      group.add(glass);
+
+      const base = new THREE.Mesh(
+        new THREE.CylinderGeometry(radius * 0.6, radius * 0.7, baseHeight, 28),
+        new THREE.MeshStandardMaterial({
+          color: 0x0f1924,
+          metalness: 0.55,
+          roughness: 0.35,
+          emissive: 0x0f1d2f,
+          emissiveIntensity: 0.6
+        })
+      );
+      base.position.y = baseY;
+      base.userData.cleanup = true;
+      group.add(base);
+
+      const interior = new THREE.Group();
+      interior.userData.isInterior = true;
+      const facing = Math.random() * Math.PI * 2;
+      const hasSnowman = Math.random() > 0.45;
+      let snowmanFoot = 0;
+      if(hasSnowman){
+        const snowman = SkeletonUtils.clone(snowmanModel);
+        const snowmanFit = fitModelToHeight(snowman, snowmanBounds, radius * 0.9);
+        snowmanFoot = Math.max(snowmanBounds.size.x, snowmanBounds.size.z) * snowmanFit.scale * 0.52;
+        snowman.rotation.y = facing;
+        snowman.position.y = baseTop + snowmanFit.lift;
+        interior.add(snowman);
+      }
+
+      const treeCount = Math.max(1, Math.floor(randBetween(1, 4)));
+      const placedTrees = [];
+      for(let i=0;i<treeCount;i++){
+        const tree = SkeletonUtils.clone(treeModel);
+        const desiredHeight = randBetween(radius * 0.55, radius * 0.75);
+        const fit = fitModelToHeight(tree, treeBounds, desiredHeight);
+        tree.rotation.y = facing;
+        tintTreeMaterialsToGreen(tree);
+        const treeFoot = Math.max(treeBounds.size.x, treeBounds.size.z) * fit.scale * 0.55;
+        let attempts = 0;
+        let placed = false;
+        while(attempts < 12){
+          const angle = randBetween(-Math.PI, Math.PI);
+          const r = randBetween(radius * 0.18, radius * 0.46);
+          const tx = Math.cos(angle) * r;
+          const tz = Math.sin(angle) * r;
+          const distToSnowman = Math.hypot(tx, tz);
+          const intersectsSnowman = hasSnowman && distToSnowman < (snowmanFoot + treeFoot + 3);
+          const intersectsOtherTree = placedTrees.some(pt => Math.hypot(pt.x - tx, pt.z - tz) < (pt.foot + treeFoot + 3));
+          if(!intersectsSnowman && !intersectsOtherTree){
+            tree.position.set(tx, baseTop + fit.lift, tz);
+            placedTrees.push({x: tx, z: tz, foot: treeFoot});
+            placed = true;
+            break;
+          }
+          attempts++;
+        }
+        if(!placed){
+          // shrink slightly and push outward as a fallback to avoid overlap
+          tree.scale.multiplyScalar(0.85);
+          const scaledFoot = treeFoot * 0.85;
+          const angle = randBetween(-Math.PI, Math.PI);
+          const r = radius * 0.48;
+          const tx = Math.cos(angle) * r;
+          const tz = Math.sin(angle) * r;
+          tree.position.set(tx, baseTop + fit.lift, tz);
+          placedTrees.push({x: tx, z: tz, foot: scaledFoot});
+        }
+        interior.add(tree);
+      }
+      group.add(interior);
+
+      const snow = makeSnowParticles(radius);
+      snow.mesh.position.y = 0;
+      snow.mesh.userData.isInterior = true;
+      group.add(snow.mesh);
+
+      const label = addLabelToGlobe(group, facing, radius);
+
+      return {group, glass, particles: snow, interior, label};
+    }
+
+    function setGlobeInteriorVisibility(inst, visible){
+      if(!inst) return;
+      if(inst.interior) inst.interior.visible = visible;
+      if(inst.particles && inst.particles.mesh) inst.particles.mesh.visible = visible;
+      if(inst.label) inst.label.visible = visible;
+      if(inst.group){
+        inst.group.children.forEach(child=>{
+          if(child.userData && child.userData.isInterior && child !== inst.interior && child !== (inst.particles && inst.particles.mesh)){
+            child.visible = visible;
+          }
+        });
+      }
+    }
+
+    function updateGlobeVisibilityState(inst, dist){
+      if(!inst || !inst.group) return;
+      const spawnDist = snowConfig.spawnDistance;
+      const interiorDist = snowConfig.renderDistance;
+      const minScale = 0.06;
+      const maxScale = 1.0;
+      const range = Math.max(spawnDist - interiorDist, 1);
+      const tRaw = THREE.MathUtils.clamp((spawnDist - dist) / range, 0, 1);
+      const t = tRaw * tRaw * (3 - 2 * tRaw); // smoothstep easing for a softer grow-in
+      const scale = THREE.MathUtils.lerp(minScale, maxScale, t);
+      inst.group.scale.setScalar(scale);
+      const showInterior = dist <= interiorDist;
+      setGlobeInteriorVisibility(inst, showInterior);
+      updateSnowGlobeAppearance(inst.glass, dist, t);
+    }
+
+    function updateVisibleGlobes(){
+      if(updatingGlobes) return;
+      updatingGlobes = true;
+      (async ()=>{
+        if(!snowmanModel || !treeModel){
+          await loadSnowAssets();
+        }
+        if(!labelFont) loadLabelFont();
+
+        const visibleIds = new Set();
+        const ndc = new THREE.Vector3();
+        const radius = snowConfig.globeRadius;
+        const spawnDist = snowConfig.spawnDistance;
+        const candidates = [];
+        for(let i=0;i<points.length;i++){
+          const p = points[i];
+          if(!p) continue;
+          const pos = new THREE.Vector3(p.x, p.y, p.z);
+          ndc.copy(pos).project(camera);
+          const onScreen = Math.abs(ndc.x) <= 1.2 && Math.abs(ndc.y) <= 1.2 && ndc.z >= -1 && ndc.z <= 1;
+          if(!onScreen) continue;
+          const existing = globeInstances.get(i);
+          const dist = camera.position.distanceTo(pos);
+          const diameterFraction = (2 * radius / Math.max(dist, 1e-4)) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+          if(diameterFraction < 0.005 && dist > radius * 25) continue;
+          const withinSpawn = dist <= spawnDist;
+          if(!existing && !withinSpawn) continue; // don't spawn new globes until close enough
+          candidates.push({idx: i, pos, dist, existing});
+        }
+
+        for(const c of candidates){
+          let inst = c.existing || globeInstances.get(c.idx);
+          if(!inst && snowmanModel && treeModel){
+            const built = buildSnowGlobe();
+            if(built){
+              inst = built;
+              inst.globeIdx = c.idx;
+              if(inst.group) inst.group.userData.globeInst = inst;
+              if(inst.glass) inst.glass.userData.globeInst = inst;
+              globeInstances.set(c.idx, inst);
+              scene.add(inst.group);
+            }
+          }
+          if(inst){
+            visibleIds.add(c.idx);
+            inst.group.position.copy(c.pos);
+            updateGlobeVisibilityState(inst, c.dist);
+          }
+        }
+
+        globeInstances.forEach((inst, id)=>{
+          if(!visibleIds.has(id)){
+            disposeGlobeInstance(inst);
+            globeInstances.delete(id);
+          }
+        });
+      })().catch(err=>console.error(err)).finally(()=>{ updatingGlobes = false; });
+    }
+
+    function updateAllSnowParticles(dt){
+      globeInstances.forEach(inst=>{
+        if(inst.particles && inst.particles.mesh && inst.particles.mesh.visible){
+          updateSnowParticlesInstance(inst.particles, dt);
+        }
+      });
+    }
+    // Lightweight camera controls (orbit + zoom)
+    function makeSimpleOrbit(camera, dom){
+      const target = new THREE.Vector3(0,0,0);
+      const spherical = new THREE.Spherical();
+      let isDragging = false;
+      let lastX = 0, lastY = 0;
+      let azVel = 0, elVel = 0, distVel = 0;
+      const rotateSpeed = 0.005;
+      const zoomSpeed = 0.15;
+      const minDist = 5, maxDist = 3000;
+
+      function syncFromCamera(){
+        const offset = camera.position.clone().sub(target);
+        spherical.setFromVector3(offset);
+      }
+      syncFromCamera();
+
+      function applyMovement(){
+        spherical.theta += azVel;
+        spherical.phi += elVel;
+        spherical.radius = THREE.MathUtils.clamp(spherical.radius + distVel, minDist, maxDist);
+        spherical.phi = THREE.MathUtils.clamp(spherical.phi, 0.05, Math.PI-0.05);
+        const pos = new THREE.Vector3().setFromSpherical(spherical).add(target);
+        camera.position.copy(pos);
+        camera.lookAt(target);
+        azVel *= 0.92; elVel *= 0.92; distVel *= 0.6;
+      }
+
+      function onDown(e){
+        isDragging = true;
+        lastX = e.clientX; lastY = e.clientY;
+        dom.style.cursor = "grabbing";
+      }
+      function onMove(e){
+        if(!isDragging) return;
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        azVel = -dx * rotateSpeed;
+        elVel = -dy * rotateSpeed;
+        lastX = e.clientX; lastY = e.clientY;
+        e.preventDefault();
+      }
+      function onUp(){
+        isDragging = false;
+        dom.style.cursor = "grab";
+      }
+      function onWheel(e){
+        distVel += e.deltaY * zoomSpeed;
+        e.preventDefault();
+      }
+      function focusOnPosition(pos, radius){
+        target.copy(pos);
+        syncFromCamera();
+        const desired = radius ?? spherical.radius;
+        spherical.radius = THREE.MathUtils.clamp(desired, minDist, maxDist);
+        const newPos = new THREE.Vector3().setFromSpherical(spherical).add(target);
+        camera.position.copy(newPos);
+        camera.lookAt(target);
+      }
+      function focusOnData(){
+        if(Array.isArray(points) && points.length){
+          let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+          for(const p of points){
+            if(p.x<minX) minX=p.x; if(p.x>maxX) maxX=p.x;
+            if(p.y<minY) minY=p.y; if(p.y>maxY) maxY=p.y;
+            if(p.z<minZ) minZ=p.z; if(p.z>maxZ) maxZ=p.z;
+          }
+          const cx = (minX+maxX)/2, cy = (minY+maxY)/2, cz = (minZ+maxZ)/2;
+          const span = Math.max(maxX-minX, maxY-minY, maxZ-minZ, 80);
+          const radius = Math.max(span * 1.2, minDist * 1.1);
+          focusOnPosition(new THREE.Vector3(cx, cy, cz), radius);
+        }else{
+          focusOnPosition(new THREE.Vector3(0,0,0), minDist * 1.5);
+        }
+      }
+      dom.addEventListener("pointerdown", onDown);
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      dom.addEventListener("wheel", onWheel, {passive:false});
+
+      return { update: applyMovement, target, focusOnData, focusOnPosition };
+    }
+
+    const controls3d = makeSimpleOrbit(camera, renderer.domElement);
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    loadLabelFont(); // kick off font load early
+
+    function pickCentroid(event){
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(centroidMeshes, false);
+      if(hits && hits.length){
+        const idx = hits[0].object.userData.index;
+        if(idx === activeCentroid) activeCentroid = null;
+        else activeCentroid = idx;
+        update3D();
+      }
+    }
+    renderer.domElement.addEventListener("click", pickCentroid);
+
+    function setFocusedPointFromHit(hit){
+      const focusPos = hit.point.clone();
+      let clusterId = null;
+      let instanceId = null;
+      if(hit.object && hit.object.isInstancedMesh && typeof hit.instanceId === "number"){
+        const pts = hit.object.userData?.points;
+        if(Array.isArray(pts) && pts[hit.instanceId]){
+          const p = pts[hit.instanceId];
+          focusPos.set(p.x, p.y, p.z);
+        }
+        clusterId = hit.object.userData?.clusterId ?? null;
+        instanceId = hit.instanceId;
+      }
+      const key = `${clusterId ?? "x"}:${instanceId ?? "p"}:${focusPos.x.toFixed(2)},${focusPos.y.toFixed(2)},${focusPos.z.toFixed(2)}`;
+      focusedPointKey = key;
+      focusedPoint = {position: focusPos, clusterId, instanceId};
+    }
+
+    function focusOnPointDoubleClick(event){
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const candidates = pointsGroup ? pointsGroup.children.slice() : [];
+      globeInstances.forEach(inst => {
+        if(inst && inst.glass){
+          candidates.push(inst.glass);
+        }
+      });
+      const hits = raycaster.intersectObjects(candidates, true);
+      if(hits && hits.length){
+        const hit = hits[0];
+        const inst = hit.object?.userData?.globeInst;
+        if(inst){
+          const focusPos = inst.group?.position?.clone?.() || hit.point.clone();
+          const desiredHeight = snowConfig.globeRadius * 2.4;
+          const requiredDist = desiredHeight / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+          controls3d.focusOnPosition(focusPos, requiredDist * 1.05);
+          event.preventDefault();
+          return;
+        } else {
+          setFocusedPointFromHit(hit);
+          const focusPos = focusedPoint.position;
+          const desiredHeight = snowConfig.globeRadius * 2.4;
+          const requiredDist = desiredHeight / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+          controls3d.focusOnPosition(focusPos, requiredDist * 1.05);
+          updateVisibleGlobes();
+          event.preventDefault();
+          return;
+        }
+      }
+      clearFocusedPoint();
+      controls3d.focusOnData();
+    }
+    renderer.domElement.addEventListener("dblclick", focusOnPointDoubleClick);
+    axesBtn.onclick = ()=>{
+      axesVisible = !axesVisible;
+      axesBtn.textContent = axesVisible ? "Hide axes" : "Show axes";
+      ensureAxes();
+      if(axesRenderer){
+        axesRenderer.domElement.style.display = axesVisible ? "block" : "none";
+      }
+    };
+    cloudBtn.onclick = () => {
+      cloudsVisible = !cloudsVisible;
+      cloudBtn.textContent = cloudsVisible ? "Hide Cloud" : "Show Cloud";
+      update3D(); // rebuild hulls for the current clustering
+    };
+
+    // Lighting and atmosphere
+    const ambi = new THREE.AmbientLight( 0x404040,2.4 ); // softer ambient to keep shading readable
+    scene.add(ambi);
+    const hemi = new THREE.HemisphereLight(0xb7e4ff, 0x1c283a, 1.1);
+    scene.add(hemi);
+    const dir = new THREE.DirectionalLight(0xffffff, 1.65);
+    dir.position.set(1.4, 1.7, 2.3);
+    scene.add(dir);
+    const fill = new THREE.DirectionalLight(0x7fb3ff, 0.7);
+    fill.position.set(-1.6, 0.9, 0.6);
+    scene.add(fill);
+    const rim = new THREE.PointLight(0x9ad9ff, 1.1, 2000, 1.3);
+    rim.position.set(-760, -60, 720);
+    scene.add(rim);
+
+    // Geometry holders
+    const pointBaseGeom = new THREE.SphereGeometry(1.1, 14, 12);
+    const pointMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      emissive: 0xa6e0e0,
+      emissiveIntensity: 10.0,
+      roughness: 0.3,
+      metalness: 0.08,
+      transparent: true,
+      opacity: pointOpacity
+    });
+    let pointsGroup = null;
+
+    let centroidMeshes = [];
+    let linkGeom = new THREE.BufferGeometry();
+    let linkMat = new THREE.LineBasicMaterial({color:0x9fb5c8, transparent:true, opacity:0.25});
+    let linkLines = new THREE.LineSegments(linkGeom, linkMat);
+    let clusterCloudGroup = null;
+    let cloudsVisible = false;
+    const clock = new THREE.Clock();
+
+    scene.add(linkLines);
+
+    function resize(){
+      const w = viewport.clientWidth || 960;
+      const h = Math.max(620, Math.round(w*0.65));
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      if(axesRenderer){
+        const axesSize = Math.min(Math.min(w, h) * 0.25, 220);
+        axesRenderer.setSize(axesSize, axesSize);
+        axesRenderer.domElement.style.width = `${axesSize}px`;
+        axesRenderer.domElement.style.height = `${axesSize}px`;
+      }
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    function makeAxisLabel(text, color, position){
+      const size = 128;
+      const canvas = document.createElement("canvas");
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0,0,size,size);
+      ctx.fillStyle = color;
+      ctx.font = "bold 64px Inter, Arial, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, size/2, size/2);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.minFilter = THREE.LinearFilter;
+      const mat = new THREE.SpriteMaterial({map: tex, depthTest:false, transparent:true, opacity: 0.9});
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.set(24,24,24);
+      sprite.position.copy(position);
+      return sprite;
+    }
+
+    function ensureAxes(){
+      if(axesScene) return;
+      axesScene = new THREE.Scene();
+      axesCam = new THREE.PerspectiveCamera(45, 1, 0.1, 1500);
+      axesCam.position.set(200, 200, 200);
+      axesCam.lookAt(0,0,0);
+      axesGroup = new THREE.Group();
+      const axisLen = 80;
+      const helper = new THREE.AxesHelper(axisLen);
+      helper.material.depthTest = false;
+      helper.material.transparent = true;
+      helper.material.opacity = 0.85;
+      axesGroup.add(helper);
+
+      const labels = new THREE.Group();
+      labels.add(makeAxisLabel("X", "#ff7b7b", new THREE.Vector3(axisLen+12,0,0)));
+      labels.add(makeAxisLabel("Y", "#7bff9c", new THREE.Vector3(0,axisLen+12,0)));
+      labels.add(makeAxisLabel("Z", "#7cb8ff", new THREE.Vector3(0,0,axisLen+12)));
+      axesGroup.add(labels);
+      axesScene.add(axesGroup);
+    }
+    function clearClouds(){
+      if(!clusterCloudGroup) return;
+      scene.remove(clusterCloudGroup);
+      clusterCloudGroup.traverse(obj => {
+        if (obj.isMesh) {
+          if (obj.geometry) obj.geometry.dispose();
+          if (Array.isArray(obj.material)) {
+            obj.material.forEach(m => m && m.dispose && m.dispose());
+          } else if (obj.material && obj.material.dispose) {
+            obj.material.dispose();
+          }
+        }
+      });
+      clusterCloudGroup = null;
+    }
+
+    function updateClouds(clusterPoints){
+      clearClouds();
+      clusterCloudGroup = new THREE.Group();
+
+      clusterPoints.forEach((pts, clusterId) => {
+        // skip unassigned / tiny clusters
+        if (clusterId < 0 || !pts || pts.length < 4) return;
+
+        const hullPoints = pts.map(p => new THREE.Vector3(p.x, p.y, p.z));
+        if (!hullPoints.length) return;
+
+        // Convex hull geometry comes from the examples module, not the core THREE namespace
+        const geom = new ConvexGeometry(hullPoints);
+        const baseColor = new THREE.Color(palette[Math.abs(clusterId) % palette.length]);
+        const isActive = (activeCentroid === null) || (activeCentroid === clusterId);
+
+        const mat = new THREE.MeshStandardMaterial({
+          color: baseColor,
+          transparent: true,
+          opacity: isActive ? 0.18 : 0.05,
+          roughness: 0.85,
+          metalness: 0.05,
+          side: THREE.DoubleSide
+        });
+
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.scale.set(1.02, 1.02, 1.02); // push hull out just a bit
+        clusterCloudGroup.add(mesh);
+      });
+
+      scene.add(clusterCloudGroup);
+    }
+
+    function update3D(){
+      const n = points.length;
+      const camDist = camera.position.distanceTo(controls3d?.target || new THREE.Vector3());
+      const pointScale = THREE.MathUtils.clamp(camDist / 700, 1, 3.2);
+      const farOpacityBoost = THREE.MathUtils.clamp((camDist - 600) / 700, 0, 1);
+      const idQuat = new THREE.Quaternion();
+      const scaleVec = new THREE.Vector3().setScalar(pointScale);
+
+      // Points grouped by cluster for per-cluster opacity
+      if(pointsGroup) scene.remove(pointsGroup);
+      pointsGroup = new THREE.Group();
+      const clusterPoints = new Map();
+      for(let i=0;i<n;i++){
+        const a = assignments[i];
+        if(!clusterPoints.has(a)) clusterPoints.set(a, []);
+        clusterPoints.get(a).push(points[i]);
+      }
+
+      clusterPoints.forEach((pts, clusterId)=>{
+        const active = (activeCentroid === null) || (clusterId === activeCentroid);
+        const baseOpacity = Math.min(pointOpacity * (1 + farOpacityBoost * 0.6), 0.6);
+        const opacity = active ? baseOpacity : Math.max(0.12, baseOpacity * 0.4);
+        const mat = new THREE.MeshPhysicalMaterial({
+          vertexColors: true,
+          color: 0xeef6ff,
+          emissive: 0x8db8ff,
+          emissiveIntensity: 0.2,
+          metalness: 1.0,
+          roughness: 0.05,
+          clearcoat: 0.6,
+          clearcoatRoughness: 0.08,
+          envMapIntensity: 1.7,
+          transparent: true,
+          opacity: Math.min(opacity, 0.45),
+          depthWrite: false
+        });
+        const inst = new THREE.InstancedMesh(pointBaseGeom, mat, Math.max(1, pts.length));
+        inst.userData.points = pts;
+        inst.userData.clusterId = clusterId;
+        const m = new THREE.Matrix4();
+        const c = new THREE.Color("#ffffff");
+        pts.forEach((p, idx)=>{
+          m.compose(new THREE.Vector3(p.x, p.y, p.z), idQuat, scaleVec);
+          inst.setMatrixAt(idx, m);
+          inst.setColorAt(idx, c);
+        });
+        inst.instanceMatrix.needsUpdate = true;
+        if(inst.instanceColor) inst.instanceColor.needsUpdate = true;
+        pointsGroup.add(inst);
+      });
+      scene.add(pointsGroup);
+
+      // Centroids
+      centroidMeshes.forEach(m=> scene.remove(m));
+      centroidMeshes = centroids.map((c,i)=>{
+        const base = new THREE.Color(palette[i % palette.length]);
+        const emissive = base.clone().lerp(new THREE.Color(0xffffff), 0.35);
+        const isActive = (activeCentroid === null) || (activeCentroid === i);
+        const mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(16, 26, 20),
+          new THREE.MeshStandardMaterial({
+            color: base,
+            emissive: emissive,
+            emissiveIntensity: 1.25,
+            metalness: 0.15,
+            roughness: 0.22,
+            transparent: true,
+            opacity: isActive ? centroidOpacity : 0.15
+          })
+        );
+        mesh.userData.index = i;
+        mesh.position.set(c.x, c.y, c.z);
+        scene.add(mesh);
+        return mesh;
+      });
+
+      // Links: show only for active cluster if selected
+      const useActive = activeCentroid !== null;
+      const activeCount = useActive ? (clusterPoints.get(activeCentroid)?.length || 0) : n;
+      const linkPos = new Float32Array(activeCount*2*3);
+      let linkIdx = 0;
+      function addLink(p, ccent){
+        linkPos[linkIdx++] = p.x; linkPos[linkIdx++] = p.y; linkPos[linkIdx++] = p.z;
+        linkPos[linkIdx++] = ccent.x; linkPos[linkIdx++] = ccent.y; linkPos[linkIdx++] = ccent.z;
+      }
+      if(useActive){
+        const pts = clusterPoints.get(activeCentroid) || [];
+        pts.forEach(p=>{
+          const ccent = centroids[activeCentroid] || p;
+          addLink(p, ccent);
+        });
+        linkMat.opacity = 0.5 * pointOpacity;
+      }else{
+        for(let i=0;i<n;i++){
+          const p = points[i];
+          const a = assignments[i];
+          const ccent = a>=0 ? centroids[a] : p;
+          addLink(p, ccent);
+        }
+        linkMat.opacity = 0.5 * pointOpacity;
+      }
+      linkGeom.dispose();
+      linkGeom = new THREE.BufferGeometry();
+      if(linkPos.length>0){
+        linkGeom.setAttribute("position", new THREE.BufferAttribute(linkPos, 3));
+      }
+      linkLines.geometry = linkGeom;
+      linkLines.visible = linkPos.length>0;
+
+      // Axes
+      ensureAxes();
+
+      if (cloudsVisible) {
+        updateClouds(clusterPoints);
+      } else {
+        clearClouds();
+      }
+    }
+
+
+    // Animation loop
+    function renderAxesOverlay(){
+      if(!axesVisible || !axesScene || !axesCam || !axesGroup || !axesRenderer) return;
+      axesGroup.quaternion.copy(camera.quaternion);
+      axesCam.position.set(200, 200, 200);
+      axesCam.lookAt(0,0,0);
+      axesCam.updateProjectionMatrix();
+      axesRenderer.render(axesScene, axesCam);
+    }
+
+    function tick(){
+      requestAnimationFrame(tick);
+      const dt = clock.getDelta();
+      controls3d.update();
+      updateVisibleGlobes();
+      updateAllSnowParticles(dt);
+      renderer.render(scene, camera);
+      renderAxesOverlay();
+    }
+    tick();
+
+    function shuffle(arr){
+      return arr.slice().sort(()=> Math.random()-0.5);
+    }
+
+    // Initial seed
+    points = makePoints(+nSlider.input.value, +kSlider.input.value, +spreadSlider.input.value);
+    update3D();
+    updateLabels("idle");
+    updateCountsFromSliders();
+  </script>
+</body>
+</html>
+
