@@ -606,26 +606,79 @@
   }
 
     // K-means helpers
+    function jitteredCopy(p){
+      return {
+        x: p.x + randBetween(-1, 1),
+        y: p.y + randBetween(-1, 1),
+        z: p.z + randBetween(-1, 1)
+      };
+    }
+
+    function seedCentroidsFromPoints(k){
+      if(points.length === 0) return [];
+      const maxK = Math.min(k, points.length);
+      const chosen = [];
+      const pick = idx => jitteredCopy(points[idx]);
+
+      let firstIdx = Math.floor(Math.random() * points.length);
+      chosen.push(pick(firstIdx));
+
+      while(chosen.length < maxK){
+        const distances = points.map(pt=>{
+          let best = Infinity;
+          for(const c of chosen){
+            const dx = pt.x - c.x;
+            const dy = pt.y - c.y;
+            const dz = pt.z - c.z;
+            const d2 = dx*dx + dy*dy + dz*dz;
+            if(d2 < best) best = d2;
+          }
+          return best;
+        });
+        const total = distances.reduce((a,b)=> a + b, 0);
+        let r = Math.random() * (total || points.length);
+        let idx = 0;
+        for(let i=0;i<distances.length;i++){
+          r -= distances[i] || 1;
+          if(r <= 0){ idx = i; break; }
+        }
+        chosen.push(pick(idx));
+      }
+      return chosen;
+    }
+
+    function farthestPointFrom(centers){
+      if(points.length === 0) return null;
+      if(!centers || !centers.length) return points[Math.floor(Math.random()*points.length)];
+      let bestIdx = 0, bestDist = -Infinity;
+      for(let i=0;i<points.length;i++){
+        const p = points[i];
+        let nearest = Infinity;
+        for(const c of centers){
+          const dx = p.x - c.x;
+          const dy = p.y - c.y;
+          const dz = p.z - c.z;
+          const d2 = dx*dx + dy*dy + dz*dz;
+          if(d2 < nearest) nearest = d2;
+        }
+        if(nearest > bestDist){
+          bestDist = nearest;
+          bestIdx = i;
+        }
+      }
+      return points[bestIdx];
+    }
+
     function init(k){
       if(points.length === 0){
         points = makePoints(+nSlider.input.value, k, +spreadSlider.input.value);
         clearFocusedPoint();
       }
-      let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
-      for(const p of points){
-        if(p.x<minX) minX=p.x; if(p.x>maxX) maxX=p.x;
-        if(p.y<minY) minY=p.y; if(p.y>maxY) maxY=p.y;
-        if(p.z<minZ) minZ=p.z; if(p.z>maxZ) maxZ=p.z;
-      }
-      const span = Math.max(maxX-minX, maxY-minY, maxZ-minZ, 80);
-      const pad = span * 0.35;
-      centroids = Array.from({length:k}, ()=>({
-        x: randBetween(minX - pad, maxX + pad),
-        y: randBetween(minY - pad, maxY + pad),
-        z: randBetween(minZ - pad, maxZ + pad)
-      }));
+      centroids = seedCentroidsFromPoints(k);
       assignments = new Array(points.length).fill(-1);
       iteration = 0;
+      assign();
+      updateCentroids();
       updateLabels("ready");
       update3D();
       if(planesVisible) updatePlaneOrigin();
@@ -665,7 +718,16 @@
         }
       }
       let moved = false;
+      const nonEmpty = centroids.filter((_, idx)=> sums[idx].count > 0);
       for(let j=0;j<centroids.length;j++){
+        if(sums[j].count === 0){
+          const p = farthestPointFrom(nonEmpty) || points[Math.floor(Math.random() * points.length)];
+          centroids[j].x = p.x + randBetween(-1, 1);
+          centroids[j].y = p.y + randBetween(-1, 1);
+          centroids[j].z = p.z + randBetween(-1, 1);
+          moved = true;
+          continue;
+        }
         if(sums[j].count > 0){
           const nx = sums[j].x / sums[j].count;
           const ny = sums[j].y / sums[j].count;
@@ -1734,4 +1796,3 @@
   </script>
 </body>
 </html>
-
