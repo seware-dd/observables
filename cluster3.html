@@ -279,6 +279,7 @@
             <div class="metric"><span>Iteration</span><strong id="iterVal">0</strong></div>
             <div class="metric"><span>SSE</span><strong id="sseVal">--</strong></div>
             <div class="metric"><span>Status</span><strong id="statusVal">idle</strong></div>
+            <div class="metric"><span>Mode</span><strong id="modeVal">k-means</strong></div>
             <div class="metric"><span>Points</span><strong id="pointsVal">0</strong></div>
             <div class="metric"><span>Clusters</span><strong id="clustersVal">0</strong></div>
           </div>
@@ -347,6 +348,9 @@
     const randomBtn = document.createElement("button");
     randomBtn.className = "btn ghost";
     randomBtn.textContent = "Randomize points";
+    const modeBtn = document.createElement("button");
+    modeBtn.className = "btn ghost";
+    modeBtn.textContent = "Mode: k-means";
     const axesBtn = document.createElement("button");
     axesBtn.className = "btn ghost";
     axesBtn.textContent = "Hide axes";
@@ -359,7 +363,7 @@
     const cloudBtn = document.createElement("button");
     cloudBtn.className = "btn ghost";
     cloudBtn.textContent = "Show Cloud";
-    btnRow.append(stepBtn, runBtn, resetBtn, randomBtn, axesBtn, axisLabelBtn, planesBtn, cloudBtn);
+    btnRow.append(stepBtn, runBtn, resetBtn, randomBtn, modeBtn, axesBtn, axisLabelBtn, planesBtn, cloudBtn);
     controls.append(kSlider.node, nSlider.node, spreadSlider.node, centroidOpacitySlider.node, pointOpacitySlider.node, btnRow);
 
     // State
@@ -369,6 +373,7 @@
     let iteration = 0;
     let centroidOpacity = +centroidOpacitySlider.input.value;
     let pointOpacity = +pointOpacitySlider.input.value;
+    let clusterMode = "kmeans"; // "kmeans" | "kmedoids"
     let running = null;
     let activeCentroid = null; // selected centroid index or null
     let axesVisible = true;
@@ -408,6 +413,7 @@
     const statusVal = shell.querySelector("#statusVal");
     const pointsVal = shell.querySelector("#pointsVal");
     const clustersVal = shell.querySelector("#clustersVal");
+    const modeVal = shell.querySelector("#modeVal");
 
     // Data generation
     function makePoints(n, k, spread){
@@ -614,11 +620,11 @@
       };
     }
 
-    function seedCentroidsFromPoints(k){
+    function seedCentroidsFromPoints(k, jitter=true){
       if(points.length === 0) return [];
       const maxK = Math.min(k, points.length);
       const chosen = [];
-      const pick = idx => jitteredCopy(points[idx]);
+      const pick = idx => jitter ? jitteredCopy(points[idx]) : {x: points[idx].x, y: points[idx].y, z: points[idx].z};
 
       let firstIdx = Math.floor(Math.random() * points.length);
       chosen.push(pick(firstIdx));
@@ -674,7 +680,7 @@
         points = makePoints(+nSlider.input.value, k, +spreadSlider.input.value);
         clearFocusedPoint();
       }
-      centroids = seedCentroidsFromPoints(k);
+      centroids = seedCentroidsFromPoints(k, clusterMode === "kmeans");
       assignments = new Array(points.length).fill(-1);
       iteration = 0;
       assign();
@@ -707,6 +713,7 @@
     }
 
     function updateCentroids(){
+      if(clusterMode === "kmedoids") return updateMedoids();
       const sums = centroids.map(()=>({x:0,y:0,z:0,count:0}));
       for(let i=0;i<points.length;i++){
         const a = assignments[i];
@@ -722,9 +729,12 @@
       for(let j=0;j<centroids.length;j++){
         if(sums[j].count === 0){
           const p = farthestPointFrom(nonEmpty) || points[Math.floor(Math.random() * points.length)];
-          centroids[j].x = p.x + randBetween(-1, 1);
-          centroids[j].y = p.y + randBetween(-1, 1);
-          centroids[j].z = p.z + randBetween(-1, 1);
+          const jx = clusterMode === "kmeans" ? randBetween(-1, 1) : 0;
+          const jy = clusterMode === "kmeans" ? randBetween(-1, 1) : 0;
+          const jz = clusterMode === "kmeans" ? randBetween(-1, 1) : 0;
+          centroids[j].x = p.x + jx;
+          centroids[j].y = p.y + jy;
+          centroids[j].z = p.z + jz;
           moved = true;
           continue;
         }
@@ -736,6 +746,55 @@
           centroids[j].x = nx; centroids[j].y = ny; centroids[j].z = nz;
           if(delta > 1e-4) moved = true;
         }
+      }
+      return moved;
+    }
+
+    function updateMedoids(){
+      const clusterPoints = centroids.map(()=>[]);
+      for(let i=0;i<points.length;i++){
+        const a = assignments[i];
+        if(a>=0 && clusterPoints[a]) clusterPoints[a].push(points[i]);
+      }
+      let moved = false;
+      const nonEmpty = centroids.filter((_, idx)=> clusterPoints[idx].length > 0);
+      for(let j=0;j<centroids.length;j++){
+        const pts = clusterPoints[j];
+        if(!pts || pts.length === 0){
+          const p = farthestPointFrom(nonEmpty) || points[Math.floor(Math.random()*points.length)];
+          if(!p) continue;
+          centroids[j].x = p.x;
+          centroids[j].y = p.y;
+          centroids[j].z = p.z;
+          moved = true;
+          continue;
+        }
+        if(pts.length === 1){
+          const p = pts[0];
+          const delta = Math.hypot(p.x-centroids[j].x, p.y-centroids[j].y, p.z-centroids[j].z);
+          centroids[j].x = p.x; centroids[j].y = p.y; centroids[j].z = p.z;
+          if(delta > 1e-4) moved = true;
+          continue;
+        }
+        const candidatePool = pts.length > 180 ? shuffle(pts).slice(0, 180) : pts;
+        let best = pts[0];
+        let bestScore = Infinity;
+        for(const cand of candidatePool){
+          let score = 0;
+          for(const p of pts){
+            const dx = p.x - cand.x;
+            const dy = p.y - cand.y;
+            const dz = p.z - cand.z;
+            score += dx*dx + dy*dy + dz*dz;
+          }
+          if(score < bestScore){
+            bestScore = score;
+            best = cand;
+          }
+        }
+        const delta = Math.hypot(best.x-centroids[j].x, best.y-centroids[j].y, best.z-centroids[j].z);
+        centroids[j].x = best.x; centroids[j].y = best.y; centroids[j].z = best.z;
+        if(delta > 1e-4) moved = true;
       }
       return moved;
     }
@@ -798,6 +857,12 @@
       clustersVal.textContent = centroids.length.toString();
     }
 
+    function refreshModeUI(){
+      const label = clusterMode === "kmeans" ? "k-means" : "k-medoids";
+      modeVal.textContent = label;
+      modeBtn.textContent = `Mode: ${label}`;
+    }
+
     // UI wiring
     stepBtn.onclick = ()=>{ if(!centroids.length) init(+kSlider.input.value); step(); };
     runBtn.onclick = ()=>{
@@ -818,6 +883,17 @@
       update3D();
       runBtn.textContent = "Run";
       if(planesVisible) updatePlaneOrigin();
+    };
+    modeBtn.onclick = ()=>{
+      clusterMode = clusterMode === "kmeans" ? "kmedoids" : "kmeans";
+      refreshModeUI();
+      stop();
+      activeCentroid = null;
+      centroids = [];
+      assignments = [];
+      iteration = 0;
+      init(+kSlider.input.value);
+      runBtn.textContent = "Run";
     };
 
     function updateCountsFromSliders(){
@@ -1789,6 +1865,7 @@
     }
 
     // Initial seed
+    refreshModeUI();
     points = makePoints(+nSlider.input.value, +kSlider.input.value, +spreadSlider.input.value);
     update3D();
     updateLabels("idle");
